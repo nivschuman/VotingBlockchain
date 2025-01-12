@@ -7,23 +7,19 @@ import (
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
-	"github.com/nivschuman/VotingBlockchain/internal/models/transaction"
+	"github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
-func setupTest() (*transaction.Transaction, *ppk.KeyPair, error) {
+func setupTest() (*models.Transaction, *ppk.KeyPair, error) {
 	keyPair, err1 := ppk.GenerateKeyPair()
 
 	if err1 != nil {
 		return nil, nil, err1
 	}
 
-	publicKeyBytes, err2 := keyPair.PublicKey.AsBytes()
+	publicKeyBytes := keyPair.PublicKey.AsBytes()
 
-	if err2 != nil {
-		return nil, nil, err2
-	}
-
-	transaction := transaction.Transaction{
+	transaction := models.Transaction{
 		CandidateId:    1,
 		Year:           2020,
 		VoterPublicKey: publicKeyBytes,
@@ -76,12 +72,43 @@ func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
 	signature, err2 := keyPair.PrivateKey.CreateSignature(hash)
 
 	if err2 != nil {
-		t.Fatalf("creating signature failed: %v", err1)
+		t.Fatalf("creating signature failed: %v", err2)
 	}
 
 	transaction.Signature = signature
+	valid, err3 := transaction.IsValidSignature()
 
-	if !transaction.IsValidSignature() {
+	if err3 != nil {
+		t.Fatalf("IsValidSignature failed: %v", err3)
+	}
+
+	if !valid {
 		t.Fatalf("IsValidSignature returned false")
+	}
+}
+
+func TestIsValidSignature_WhenSignatureIsInvalid(t *testing.T) {
+	transaction, keyPair, err1 := setupTest()
+
+	if err1 != nil {
+		t.Fatalf("setup failed: %v", err1)
+	}
+
+	hash := hash.HashStringAsBytes("test")
+	signature, err2 := keyPair.PrivateKey.CreateSignature(hash)
+
+	if err2 != nil {
+		t.Fatalf("creating signature failed: %v", err2)
+	}
+
+	transaction.Signature = signature
+	valid, err3 := transaction.IsValidSignature()
+
+	if err3 != nil {
+		t.Fatalf("IsValidSignature failed: %v", err3)
+	}
+
+	if valid {
+		t.Fatalf("IsValidSignature returned true")
 	}
 }

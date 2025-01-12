@@ -1,4 +1,4 @@
-package transaction
+package models
 
 import (
 	"fmt"
@@ -9,10 +9,10 @@ import (
 
 type Transaction struct {
 	Id             []byte //hash of (CandidateId, Year, VoterPublicKey), 32 bytes
-	CandidateId    int32  //id of candidate to vote for
-	Year           int32  //year of vote
-	VoterPublicKey []byte //compressed ECDSA public key, 33 bytes
-	Signature      []byte //signature of Id, 64 bytes
+	CandidateId    uint32 //id of candidate to vote for, 4 bytes
+	Year           uint32 //year of vote, 4 bytes
+	VoterPublicKey []byte //marshal compressed ECDSA public key, 33 bytes
+	Signature      []byte //signature of Id, 64 bytes, in ASN1 format, 70-72 bytes
 }
 
 func (transaction *Transaction) GetTransactionHash() []byte {
@@ -24,8 +24,13 @@ func (transaction *Transaction) SetId() {
 	transaction.Id = transaction.GetTransactionHash()
 }
 
-func (transaction *Transaction) IsValidSignature() bool {
+func (transaction *Transaction) IsValidSignature() (bool, error) {
 	hash := transaction.GetTransactionHash()
-	publicKey := ppk.GetPublicKeyFromBytes(transaction.VoterPublicKey)
-	return publicKey.VerifySignature(transaction.Signature, hash)
+	publicKey, err := ppk.GetPublicKeyFromBytes(transaction.VoterPublicKey)
+
+	if err != nil {
+		return false, err
+	}
+
+	return publicKey.VerifySignature(transaction.Signature, hash), nil
 }
