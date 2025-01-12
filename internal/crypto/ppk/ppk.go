@@ -8,15 +8,29 @@ import (
 	"math/big"
 )
 
-// verify that signature of hash from public key is valid
-func VerifySignature(publicKeyCompressed []byte, signature []byte, hash []byte) bool {
-	//get public key
-	publicKey := UnmarshalCompressedPublicKey(publicKeyCompressed)
+type PublicKey interface {
+	VerifySignature(signature []byte, hash []byte) bool
+	AsBytes() ([]byte, error)
+}
 
-	if publicKey == nil {
-		return false
-	}
+type PrivateKey interface {
+	CreateSignature(hash []byte) ([]byte, error)
+}
 
+type KeyPair struct {
+	PublicKey  PublicKey
+	PrivateKey PrivateKey
+}
+
+type ECDSAPublicKey struct {
+	publicKey *ecdsa.PublicKey
+}
+
+type ECDSAPrivateKey struct {
+	privateKey *ecdsa.PrivateKey
+}
+
+func (ecdsaPublicKey *ECDSAPublicKey) VerifySignature(signature []byte, hash []byte) bool {
 	// Unmarshal the signature into r, s components
 	var r, s big.Int
 	signatureLen := len(signature)
@@ -24,21 +38,66 @@ func VerifySignature(publicKeyCompressed []byte, signature []byte, hash []byte) 
 	s.SetBytes(signature[signatureLen/2:])
 
 	// Use the Verify method from ecdsa to validate the signature
-	valid := ecdsa.Verify(publicKey, hash[:], &r, &s)
+	valid := ecdsa.Verify(ecdsaPublicKey.publicKey, hash[:], &r, &s)
 	return valid
 }
 
-func UnmarshalCompressedPublicKey(compressed []byte) *ecdsa.PublicKey {
+func (ecdsaPublicKey *ECDSAPublicKey) AsBytes() ([]byte, error) {
+	// Get public key
+	publicKey := ecdsaPublicKey.publicKey
+
+	// Ensure the elliptic curve is supported (e.g., P-256)
+	curve := elliptic.P256()
+
+	// Get the X and Y coordinates of the public key
+	x, y := publicKey.X, publicKey.Y
+
+	// Check that the point is on the curve
+	if !curve.IsOnCurve(x, y) {
+		return nil, fmt.Errorf("public key is not on the curve")
+	}
+
+	// Compress the public key to 33 bytes
+	compressed := make([]byte, 33)
+	if y.Bit(0) == 0 {
+		compressed[0] = 0x02 // Even Y
+	} else {
+		compressed[0] = 0x03 // Odd Y
+	}
+
+	// Copy the X coordinate (32 bytes), ensure padding if necessary
+	xBytes := publicKey.X.Bytes()
+	padding := 32 - len(xBytes)
+	if padding > 0 {
+		copy(compressed[1+padding:], xBytes)
+	} else {
+		copy(compressed[1:], xBytes)
+	}
+
+	return compressed, nil
+}
+
+func (ecdsaPrivateKey *ECDSAPrivateKey) CreateSignature(hash []byte) ([]byte, error) {
+	r, s, err := ecdsa.Sign(rand.Reader, ecdsaPrivateKey.privateKey, hash)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return append(r.Bytes(), s.Bytes()...), nil
+}
+
+func GetPublicKeyFromBytes(bytes []byte) PublicKey {
 	//make sure that len of compressed is 33 bytes
-	if len(compressed) != 33 {
+	if len(bytes) != 33 {
 		return nil
 	}
 
 	// The first byte is the prefix (either 0x02 or 0x03)
-	prefix := compressed[0]
+	prefix := bytes[0]
 
 	// The rest are the x-coordinate bytes (32 bytes)
-	x := new(big.Int).SetBytes(compressed[1:])
+	x := new(big.Int).SetBytes(bytes[1:])
 
 	// The curve we're using (P-256)
 	curve := elliptic.P256()
@@ -75,53 +134,29 @@ func UnmarshalCompressedPublicKey(compressed []byte) *ecdsa.PublicKey {
 		Y:     y,
 	}
 
-	return pubKey
+	publicKey := &ECDSAPublicKey{
+		publicKey: pubKey,
+	}
+
+	return publicKey
 }
 
-func GenerateKeyPair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
+func GenerateKeyPair() (*KeyPair, error) {
 	curve := elliptic.P256()
 
 	privateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	return &privateKey.PublicKey, privateKey, nil
-}
-
-func CreateSignature(privateKey *ecdsa.PrivateKey, hash []byte) ([]byte, error) {
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, hash[:])
-
-	if err != nil {
 		return nil, err
 	}
 
-	return append(r.Bytes(), s.Bytes()...), nil
-}
-
-func CompressPublicKey(publicKey *ecdsa.PublicKey) ([]byte, error) {
-	// Ensure the elliptic curve is supported (e.g., P-256)
-	curve := elliptic.P256()
-
-	// Get the X and Y coordinates of the public key
-	x, y := publicKey.X, publicKey.Y
-
-	// Check that the point is on the curve
-	if !curve.IsOnCurve(x, y) {
-		return nil, fmt.Errorf("public key is not on the curve")
+	keyPair := &KeyPair{
+		PublicKey: &ECDSAPublicKey{
+			publicKey: &privateKey.PublicKey,
+		},
+		PrivateKey: &ECDSAPrivateKey{
+			privateKey: privateKey,
+		},
 	}
 
-	// Compress the public key to 33 bytes
-	compressed := make([]byte, 33)
-	if y.Bit(0) == 0 {
-		compressed[0] = 0x02 // Even Y
-	} else {
-		compressed[0] = 0x03 // Odd Y
-	}
-
-	// Copy the X coordinate (32 bytes)
-	xBytes := x.Bytes()
-	copy(compressed[1:], xBytes)
-
-	return compressed, nil
+	return keyPair, nil
 }

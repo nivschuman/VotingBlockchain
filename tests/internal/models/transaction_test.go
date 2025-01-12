@@ -2,7 +2,6 @@ package transaction_test
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"fmt"
 	"testing"
 
@@ -11,30 +10,30 @@ import (
 	"github.com/nivschuman/VotingBlockchain/internal/models/transaction"
 )
 
-func setupTest() (*transaction.Transaction, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
-	publicKey, privateKey, err1 := ppk.GenerateKeyPair()
+func setupTest() (*transaction.Transaction, *ppk.KeyPair, error) {
+	keyPair, err1 := ppk.GenerateKeyPair()
 
 	if err1 != nil {
-		return nil, nil, nil, err1
+		return nil, nil, err1
 	}
 
-	compressedPublicKey, err2 := ppk.CompressPublicKey(publicKey)
+	publicKeyBytes, err2 := keyPair.PublicKey.AsBytes()
 
 	if err2 != nil {
-		return nil, nil, nil, err2
+		return nil, nil, err2
 	}
 
 	transaction := transaction.Transaction{
 		CandidateId:    1,
 		Year:           2020,
-		VoterPublicKey: compressedPublicKey,
+		VoterPublicKey: publicKeyBytes,
 	}
 
-	return &transaction, publicKey, privateKey, nil
+	return &transaction, keyPair, nil
 }
 
 func TestGetTransactionHash(t *testing.T) {
-	transaction, _, _, err := setupTest()
+	transaction, _, err := setupTest()
 
 	if err != nil {
 		t.Fatalf("setup failed: %v", err)
@@ -50,7 +49,7 @@ func TestGetTransactionHash(t *testing.T) {
 }
 
 func TestSetId(t *testing.T) {
-	transaction, _, _, err := setupTest()
+	transaction, _, err := setupTest()
 
 	if err != nil {
 		t.Fatalf("setup failed: %v", err)
@@ -67,14 +66,14 @@ func TestSetId(t *testing.T) {
 }
 
 func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
-	transaction, _, privKey, err1 := setupTest()
+	transaction, keyPair, err1 := setupTest()
 
 	if err1 != nil {
 		t.Fatalf("setup failed: %v", err1)
 	}
 
 	hash := transaction.GetTransactionHash()
-	signature, err2 := ppk.CreateSignature(privKey, hash)
+	signature, err2 := keyPair.PrivateKey.CreateSignature(hash)
 
 	if err2 != nil {
 		t.Fatalf("creating signature failed: %v", err1)
@@ -83,6 +82,6 @@ func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
 	transaction.Signature = signature
 
 	if !transaction.IsValidSignature() {
-		t.Fatalf("IsValidSignature returned false but should return true")
+		t.Fatalf("IsValidSignature returned false")
 	}
 }

@@ -26,5 +26,6 @@ func (transaction *Transaction) SetId() {
 
 func (transaction *Transaction) IsValidSignature() bool {
 	hash := transaction.GetTransactionHash()
-	return ppk.VerifySignature(transaction.VoterPublicKey, transaction.Signature, hash)
+	publicKey := ppk.GetPublicKeyFromBytes(transaction.VoterPublicKey)
+	return publicKey.VerifySignature(transaction.Signature, hash)
 }
