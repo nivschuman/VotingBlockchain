@@ -1,42 +1,39 @@
-package transaction_test
+package models_test
 
 import (
 	"bytes"
-	"fmt"
+	"encoding/binary"
 	"testing"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
-	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 	"github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
-func setupTest() (*models.Transaction, *ppk.KeyPair, error) {
-	keyPair, err1 := ppk.GenerateKeyPair()
-
-	if err1 != nil {
-		return nil, nil, err1
-	}
-
-	publicKeyBytes := keyPair.PublicKey.AsBytes()
-
+func getTestTransaction() *models.Transaction {
 	transaction := models.Transaction{
-		CandidateId:    1,
-		Year:           2020,
-		VoterPublicKey: publicKeyBytes,
+		CandidateId: 1,
+		Year:        2020,
+		Term:        1,
 	}
 
-	return &transaction, keyPair, nil
+	return &transaction
+}
+
+func generateExpectedTransactionHash(transaction *models.Transaction) []byte {
+	buf_size := 4 + 4 + 4 + len(transaction.WalletId)
+	buf := make([]byte, buf_size)
+
+	binary.BigEndian.PutUint32(buf[0:4], transaction.CandidateId)
+	binary.BigEndian.PutUint32(buf[4:8], transaction.Year)
+	binary.BigEndian.PutUint32(buf[8:12], transaction.Term)
+	copy(buf[12:], transaction.WalletId)
+
+	return hash.HashBytes(buf)
 }
 
 func TestGetTransactionHash(t *testing.T) {
-	transaction, _, err := setupTest()
-
-	if err != nil {
-		t.Fatalf("setup failed: %v", err)
-	}
-
-	data := fmt.Sprintf("%d%d%s", transaction.CandidateId, transaction.Year, transaction.VoterPublicKey)
-	expectedHash := hash.HashStringAsBytes(data)
+	transaction := getTestTransaction()
+	expectedHash := generateExpectedTransactionHash(transaction)
 	receivedHash := transaction.GetTransactionHash()
 
 	if !(bytes.Equal(expectedHash, receivedHash)) {
@@ -44,71 +41,13 @@ func TestGetTransactionHash(t *testing.T) {
 	}
 }
 
-func TestSetId(t *testing.T) {
-	transaction, _, err := setupTest()
-
-	if err != nil {
-		t.Fatalf("setup failed: %v", err)
-	}
-
-	data := fmt.Sprintf("%d%d%s", transaction.CandidateId, transaction.Year, transaction.VoterPublicKey)
-	expectedId := hash.HashStringAsBytes(data)
+func TestTransactionSetId(t *testing.T) {
+	transaction := getTestTransaction()
+	expectedId := generateExpectedTransactionHash(transaction)
 
 	transaction.SetId()
 
 	if !(bytes.Equal(expectedId, transaction.Id)) {
 		t.Fatalf("expected id isn't same as received hash")
-	}
-}
-
-func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
-	transaction, keyPair, err1 := setupTest()
-
-	if err1 != nil {
-		t.Fatalf("setup failed: %v", err1)
-	}
-
-	hash := transaction.GetTransactionHash()
-	signature, err2 := keyPair.PrivateKey.CreateSignature(hash)
-
-	if err2 != nil {
-		t.Fatalf("creating signature failed: %v", err2)
-	}
-
-	transaction.Signature = signature
-	valid, err3 := transaction.IsValidSignature()
-
-	if err3 != nil {
-		t.Fatalf("IsValidSignature failed: %v", err3)
-	}
-
-	if !valid {
-		t.Fatalf("IsValidSignature returned false")
-	}
-}
-
-func TestIsValidSignature_WhenSignatureIsInvalid(t *testing.T) {
-	transaction, keyPair, err1 := setupTest()
-
-	if err1 != nil {
-		t.Fatalf("setup failed: %v", err1)
-	}
-
-	hash := hash.HashStringAsBytes("test")
-	signature, err2 := keyPair.PrivateKey.CreateSignature(hash)
-
-	if err2 != nil {
-		t.Fatalf("creating signature failed: %v", err2)
-	}
-
-	transaction.Signature = signature
-	valid, err3 := transaction.IsValidSignature()
-
-	if err3 != nil {
-		t.Fatalf("IsValidSignature failed: %v", err3)
-	}
-
-	if valid {
-		t.Fatalf("IsValidSignature returned true")
 	}
 }
