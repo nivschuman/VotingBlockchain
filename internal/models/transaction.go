@@ -7,26 +7,24 @@ import (
 )
 
 type Transaction struct {
-	Id          []byte //hash of (CandidateId, Year, Term, WalletId), 32 bytes
+	Id          []byte //hash of (CandidateId, ElectionId, WalletId), 32 bytes
 	CandidateId uint32 //id of candidate to vote for, 4 bytes
-	Year        uint32 //year of vote, 4 bytes
-	Term        uint32 //term of vote in year, 4 bytes
+	ElectionId  []byte //id of election to vote in, 32 bytes (hash)
 	WalletId    []byte //wallet id, 32 bytes (hash)
-	Signature   []byte //signature of Id, 64 bytes, in ASN1 format, 70-72 bytes
+	Signature   []byte //signature of Id, 64 bytes, in ASN1 format, 70-72 bytes, signed by voter
 }
 
-func (transaction *Transaction) GetTransactionHash() []byte {
-	buf_size := 4 + 4 + 4 + len(transaction.WalletId)
+func (transaction *Transaction) GetHash() []byte {
+	buf_size := 4
 	buf := make([]byte, buf_size)
+	binary.BigEndian.PutUint32(buf, transaction.CandidateId)
 
-	binary.BigEndian.PutUint32(buf[0:4], transaction.CandidateId)
-	binary.BigEndian.PutUint32(buf[4:8], transaction.Year)
-	binary.BigEndian.PutUint32(buf[8:12], transaction.Term)
-	copy(buf[12:], transaction.WalletId)
+	concatenated := append(buf, transaction.ElectionId...)
+	concatenated = append(concatenated, transaction.WalletId...)
 
-	return hash.HashBytes(buf)
+	return hash.HashBytes(concatenated)
 }
 
 func (transaction *Transaction) SetId() {
-	transaction.Id = transaction.GetTransactionHash()
+	transaction.Id = transaction.GetHash()
 }

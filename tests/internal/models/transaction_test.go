@@ -9,32 +9,43 @@ import (
 	"github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
-func getTestTransaction() *models.Transaction {
-	transaction := models.Transaction{
-		CandidateId: 1,
-		Year:        2020,
-		Term:        1,
+func getTestTransaction() (*models.Transaction, error) {
+	election := getTestElection()
+	wallet, _, err := getTestWallet()
+
+	if err != nil {
+		return nil, err
 	}
 
-	return &transaction
+	transaction := models.Transaction{
+		CandidateId: 1,
+		ElectionId:  election.Id,
+		WalletId:    wallet.Id,
+	}
+
+	return &transaction, nil
 }
 
 func generateExpectedTransactionHash(transaction *models.Transaction) []byte {
-	buf_size := 4 + 4 + 4 + len(transaction.WalletId)
+	buf_size := 4
 	buf := make([]byte, buf_size)
+	binary.BigEndian.PutUint32(buf, transaction.CandidateId)
 
-	binary.BigEndian.PutUint32(buf[0:4], transaction.CandidateId)
-	binary.BigEndian.PutUint32(buf[4:8], transaction.Year)
-	binary.BigEndian.PutUint32(buf[8:12], transaction.Term)
-	copy(buf[12:], transaction.WalletId)
+	concatenated := append(buf, transaction.ElectionId...)
+	concatenated = append(concatenated, transaction.WalletId...)
 
-	return hash.HashBytes(buf)
+	return hash.HashBytes(concatenated)
 }
 
 func TestGetTransactionHash(t *testing.T) {
-	transaction := getTestTransaction()
+	transaction, err := getTestTransaction()
+
+	if err != nil {
+		t.Fatalf("error in getTestTransaction: %v", err)
+	}
+
 	expectedHash := generateExpectedTransactionHash(transaction)
-	receivedHash := transaction.GetTransactionHash()
+	receivedHash := transaction.GetHash()
 
 	if !(bytes.Equal(expectedHash, receivedHash)) {
 		t.Fatalf("expected hash isn't same as received hash")
@@ -42,7 +53,12 @@ func TestGetTransactionHash(t *testing.T) {
 }
 
 func TestTransactionSetId(t *testing.T) {
-	transaction := getTestTransaction()
+	transaction, err := getTestTransaction()
+
+	if err != nil {
+		t.Fatalf("error in getTestTransaction: %v", err)
+	}
+
 	expectedId := generateExpectedTransactionHash(transaction)
 
 	transaction.SetId()

@@ -2,7 +2,6 @@ package models_test
 
 import (
 	"bytes"
-	"encoding/binary"
 	"testing"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
@@ -17,24 +16,22 @@ func getTestWallet() (*models.Wallet, *ppk.KeyPair, error) {
 		return nil, nil, err
 	}
 
+	election := getTestElection()
+
 	wallet := &models.Wallet{
 		VoterPublicKey: keyPair.PublicKey.AsBytes(),
-		Year:           2020,
-		Term:           1,
+		ElectionId:     election.Id,
 	}
+
+	wallet.SetId()
 
 	return wallet, keyPair, nil
 }
 
 func generateExpectedWalletHash(wallet *models.Wallet) []byte {
-	buf_size := 4 + 4 + len(wallet.VoterPublicKey)
-	buf := make([]byte, buf_size)
+	concatenated := append(wallet.VoterPublicKey, wallet.ElectionId...)
 
-	binary.BigEndian.PutUint32(buf[0:4], wallet.Year)
-	binary.BigEndian.PutUint32(buf[4:8], wallet.Term)
-	copy(buf[8:], wallet.VoterPublicKey)
-
-	return hash.HashBytes(buf)
+	return hash.HashBytes(concatenated)
 }
 
 func TestGetWalletHash(t *testing.T) {
@@ -45,7 +42,7 @@ func TestGetWalletHash(t *testing.T) {
 	}
 
 	expectedHash := generateExpectedWalletHash(wallet)
-	receivedHash := wallet.GetWalletHash()
+	receivedHash := wallet.GetHash()
 
 	if !(bytes.Equal(expectedHash, receivedHash)) {
 		t.Fatalf("expected hash isn't same as received hash")
