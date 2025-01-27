@@ -18,7 +18,7 @@ func (election *Election) GetHash() []byte {
 	buf := make([]byte, buf_size)
 
 	binary.BigEndian.PutUint64(buf[0:8], uint64(election.StartTimestamp))
-	binary.BigEndian.PutUint64(buf[8:16], uint64(election.StartTimestamp))
+	binary.BigEndian.PutUint64(buf[8:16], uint64(election.EndTimestamp))
 
 	return hash.HashBytes(buf)
 }
