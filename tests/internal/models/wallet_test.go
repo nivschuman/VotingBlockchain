@@ -2,6 +2,7 @@ package models_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
@@ -29,9 +30,13 @@ func getTestWallet() (*models.Wallet, *ppk.KeyPair, error) {
 }
 
 func generateExpectedWalletHash(wallet *models.Wallet) []byte {
-	concatenated := append(wallet.VoterPublicKey, wallet.ElectionId...)
+	buf := new(bytes.Buffer)
 
-	return hash.HashBytes(concatenated)
+	binary.Write(buf, binary.BigEndian, wallet.Version)
+	buf.Write(wallet.VoterPublicKey)
+	buf.Write(wallet.ElectionId)
+
+	return hash.HashBytes(buf.Bytes())
 }
 
 func TestGetWalletHash(t *testing.T) {
