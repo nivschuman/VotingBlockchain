@@ -1,28 +1,28 @@
 package models
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 )
 
 type Transaction struct {
-	Id          []byte //hash of (CandidateId, ElectionId, WalletId), 32 bytes
+	Id          []byte //hash of (Version, CandidateId, WalletId), 32 bytes
+	Version     int32  //version of transaction, 4 bytes
 	CandidateId uint32 //id of candidate to vote for, 4 bytes
-	ElectionId  []byte //id of election to vote in, 32 bytes (hash)
 	WalletId    []byte //wallet id, 32 bytes (hash)
-	Signature   []byte //signature of Id, 64 bytes, in ASN1 format, 70-72 bytes, signed by voter
+	Signature   []byte //signature of Id, in ASN1 format, 70-72 bytes, signed by voter
 }
 
 func (transaction *Transaction) GetHash() []byte {
-	buf_size := 4
-	buf := make([]byte, buf_size)
-	binary.BigEndian.PutUint32(buf, transaction.CandidateId)
+	buf := new(bytes.Buffer)
 
-	concatenated := append(buf, transaction.ElectionId...)
-	concatenated = append(concatenated, transaction.WalletId...)
+	binary.Write(buf, binary.BigEndian, transaction.Version)
+	binary.Write(buf, binary.BigEndian, transaction.CandidateId)
+	buf.Write(transaction.WalletId)
 
-	return hash.HashBytes(concatenated)
+	return hash.HashBytes(buf.Bytes())
 }
 
 func (transaction *Transaction) SetId() {

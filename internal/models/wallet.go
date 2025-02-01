@@ -1,21 +1,29 @@
 package models
 
 import (
+	"bytes"
+	"encoding/binary"
+
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 )
 
 type Wallet struct {
-	Id                  []byte //hash of (Year, Term, PublicKey), 32 bytes
+	Id                  []byte //hash of (Version, VoterPublicKey, ElectionId), 32 bytes
+	Version             int32  //version of wallet, 4 bytes
 	VoterPublicKey      []byte //public key of voter marshal compressed, 33 bytes
 	ElectionId          []byte //election that wallet is valid for, 32 bytes
-	GovernmentSignature []byte //signature of Id, 64 bytes, in ASN1 format, 70-72 bytes, signed by government
+	GovernmentSignature []byte //signature of Id, in ASN1 format, 70-72 bytes, signed by government
 }
 
 func (wallet *Wallet) GetHash() []byte {
-	concatenated := append(wallet.VoterPublicKey, wallet.ElectionId...)
+	buf := new(bytes.Buffer)
 
-	return hash.HashBytes(concatenated)
+	binary.Write(buf, binary.BigEndian, wallet.Version)
+	buf.Write(wallet.VoterPublicKey)
+	buf.Write(wallet.ElectionId)
+
+	return hash.HashBytes(buf.Bytes())
 }
 
 func (wallet *Wallet) SetId() {

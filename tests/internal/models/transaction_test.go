@@ -10,7 +10,6 @@ import (
 )
 
 func getTestTransaction() (*models.Transaction, error) {
-	election := getTestElection()
 	wallet, _, err := getTestWallet()
 
 	if err != nil {
@@ -19,7 +18,6 @@ func getTestTransaction() (*models.Transaction, error) {
 
 	transaction := models.Transaction{
 		CandidateId: 1,
-		ElectionId:  election.Id,
 		WalletId:    wallet.Id,
 	}
 
@@ -27,14 +25,13 @@ func getTestTransaction() (*models.Transaction, error) {
 }
 
 func generateExpectedTransactionHash(transaction *models.Transaction) []byte {
-	buf_size := 4
-	buf := make([]byte, buf_size)
-	binary.BigEndian.PutUint32(buf, transaction.CandidateId)
+	buf := new(bytes.Buffer)
 
-	concatenated := append(buf, transaction.ElectionId...)
-	concatenated = append(concatenated, transaction.WalletId...)
+	binary.Write(buf, binary.BigEndian, transaction.Version)
+	binary.Write(buf, binary.BigEndian, transaction.CandidateId)
+	buf.Write(transaction.WalletId)
 
-	return hash.HashBytes(concatenated)
+	return hash.HashBytes(buf.Bytes())
 }
 
 func TestGetTransactionHash(t *testing.T) {
