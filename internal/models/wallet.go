@@ -39,3 +39,15 @@ func (wallet *Wallet) VerifySignature(signature []byte, hash []byte) (bool, erro
 
 	return publicKey.VerifySignature(signature, hash), nil
 }
+
+func (wallet *Wallet) AsBytes() []byte {
+	buf := new(bytes.Buffer)
+
+	binary.Write(buf, binary.BigEndian, wallet.Version)
+	buf.Write(wallet.VoterPublicKey)
+	buf.Write(wallet.ElectionId)
+	binary.Write(buf, binary.BigEndian, uint32(len(wallet.GovernmentSignature)))
+	buf.Write(wallet.GovernmentSignature)
+
+	return buf.Bytes()
+}

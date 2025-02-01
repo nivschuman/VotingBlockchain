@@ -28,3 +28,15 @@ func (election *Election) GetHash() []byte {
 func (election *Election) SetId() {
 	election.Id = election.GetHash()
 }
+
+func (election *Election) AsBytes() []byte {
+	buf := new(bytes.Buffer)
+
+	binary.Write(buf, binary.BigEndian, election.Version)
+	binary.Write(buf, binary.BigEndian, election.StartTimestamp)
+	binary.Write(buf, binary.BigEndian, election.EndTimestamp)
+	binary.Write(buf, binary.BigEndian, uint32(len(election.GovernmentSignature)))
+	buf.Write(election.GovernmentSignature)
+
+	return buf.Bytes()
+}

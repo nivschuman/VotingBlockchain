@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math/big"
 
@@ -25,19 +26,11 @@ type Block[T Content] struct {
 }
 
 func (blockHeader *BlockHeader) GetHash() []byte {
-	buf_size := 4 + 8 + 4 + 4
-	buf := make([]byte, buf_size)
+	return hash.HashBytes(blockHeader.AsBytes())
+}
 
-	binary.BigEndian.PutUint32(buf[0:4], uint32(blockHeader.Version))
-	binary.BigEndian.PutUint64(buf[4:12], uint64(blockHeader.Timestamp))
-	binary.BigEndian.PutUint32(buf[12:16], blockHeader.NBits)
-	binary.BigEndian.PutUint32(buf[16:20], blockHeader.Nonce)
-
-	concatenated := append(buf, blockHeader.PreviousBlockId...)
-	concatenated = append(concatenated, blockHeader.MerkleRoot...)
-	concatenated = append(concatenated, blockHeader.MinerPublicKey...)
-
-	return hash.HashBytes(concatenated)
+func (blockHeader *BlockHeader) SetId() {
+	blockHeader.Id = blockHeader.GetHash()
 }
 
 func (blockHeader *BlockHeader) IsHashBelowTarget() bool {
@@ -47,45 +40,31 @@ func (blockHeader *BlockHeader) IsHashBelowTarget() bool {
 	return blockBigInt.Cmp(targetBigInt) <= 0
 }
 
-// version,timestamp,nBits,nonce,previousBlockId,merkleRoot,minerPublicKey
 func (blockHeader *BlockHeader) AsBytes() []byte {
-	buf := make([]byte, 0)
+	buf := new(bytes.Buffer)
 
-	versionBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(versionBytes, uint32(blockHeader.Version))
-	buf = append(buf, versionBytes...)
+	binary.Write(buf, binary.BigEndian, blockHeader.Version)
+	binary.Write(buf, binary.BigEndian, blockHeader.Timestamp)
+	binary.Write(buf, binary.BigEndian, blockHeader.NBits)
+	binary.Write(buf, binary.BigEndian, blockHeader.Nonce)
+	buf.Write(blockHeader.PreviousBlockId)
+	buf.Write(blockHeader.MerkleRoot)
+	buf.Write(blockHeader.MinerPublicKey)
 
-	timestampBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(timestampBytes, uint64(blockHeader.Timestamp))
-	buf = append(buf, timestampBytes...)
-
-	nBitsBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(nBitsBytes, blockHeader.NBits)
-	buf = append(buf, nBitsBytes...)
-
-	nonceBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(nonceBytes, blockHeader.Nonce)
-	buf = append(buf, nonceBytes...)
-
-	buf = append(buf, blockHeader.PreviousBlockId...)
-	buf = append(buf, blockHeader.MerkleRoot...)
-	buf = append(buf, blockHeader.MinerPublicKey...)
-
-	return buf
+	return buf.Bytes()
 }
 
 func (block *Block[T]) AsBytes() []byte {
-	buf := block.Header.AsBytes()
+	buf := new(bytes.Buffer)
 
-	contentTypeBytes := make([]byte, 2)
-	binary.BigEndian.PutUint16(contentTypeBytes, block.ContentType)
-	buf = append(buf, contentTypeBytes...)
+	buf.Write(block.Header.AsBytes())
+	binary.Write(buf, binary.BigEndian, uint16(block.ContentType))
 
 	for _, content := range block.Content {
-		buf = append(buf, content.AsBytes()...)
+		buf.Write(content.AsBytes())
 	}
 
-	return buf
+	return buf.Bytes()
 }
 
 func getTargetFromNBits(nBits uint32) *big.Int {

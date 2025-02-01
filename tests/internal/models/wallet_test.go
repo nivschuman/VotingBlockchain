@@ -39,6 +39,18 @@ func generateExpectedWalletHash(wallet *models.Wallet) []byte {
 	return hash.HashBytes(buf.Bytes())
 }
 
+func generateExpectedWalletBytes(wallet *models.Wallet) []byte {
+	buf := new(bytes.Buffer)
+
+	binary.Write(buf, binary.BigEndian, wallet.Version)
+	buf.Write(wallet.VoterPublicKey)
+	buf.Write(wallet.ElectionId)
+	binary.Write(buf, binary.BigEndian, uint32(len(wallet.GovernmentSignature)))
+	buf.Write(wallet.GovernmentSignature)
+
+	return buf.Bytes()
+}
+
 func TestGetWalletHash(t *testing.T) {
 	wallet, _, err := getTestWallet()
 
@@ -65,6 +77,20 @@ func TestWalletSetId(t *testing.T) {
 	wallet.SetId()
 
 	if !(bytes.Equal(expectedId, wallet.Id)) {
+		t.Fatalf("expected hash isn't same as received hash")
+	}
+}
+
+func TestWalletAsBytes(t *testing.T) {
+	wallet, _, err := getTestWallet()
+
+	if err != nil {
+		t.Fatalf("error in getTestWallet: %v", err)
+	}
+
+	expectedBytes := generateExpectedWalletBytes(wallet)
+
+	if !(bytes.Equal(expectedBytes, wallet.AsBytes())) {
 		t.Fatalf("expected hash isn't same as received hash")
 	}
 }
