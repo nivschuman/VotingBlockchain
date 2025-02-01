@@ -28,3 +28,15 @@ func (transaction *Transaction) GetHash() []byte {
 func (transaction *Transaction) SetId() {
 	transaction.Id = transaction.GetHash()
 }
+
+func (transaction *Transaction) AsBytes() []byte {
+	buf := new(bytes.Buffer)
+
+	binary.Write(buf, binary.BigEndian, transaction.Version)
+	binary.Write(buf, binary.BigEndian, transaction.CandidateId)
+	buf.Write(transaction.WalletId)
+	binary.Write(buf, binary.BigEndian, uint32(len(transaction.Signature)))
+	buf.Write(transaction.Signature)
+
+	return buf.Bytes()
+}
