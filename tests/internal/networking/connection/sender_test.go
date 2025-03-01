@@ -15,7 +15,7 @@ func TestSender_SendMessage(t *testing.T) {
 	conn := mocks.NewConnMock()
 
 	sender := connection.NewSender()
-	err := sender.SendMessage(conn, testMessage)
+	err := sender.SendMessage(conn, &testMessage)
 
 	if err != nil {
 		t.Fatalf("error in read message: %v", err)

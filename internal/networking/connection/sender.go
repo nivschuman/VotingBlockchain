@@ -14,14 +14,14 @@ func NewSender() *Sender {
 	return &Sender{}
 }
 
-func (sender *Sender) SendMessage(conn net.Conn, Message models.Message) error {
+func (sender *Sender) SendMessage(conn net.Conn, Message *models.Message) error {
 	err := sender.sendMagicBytes(conn)
 
 	if err != nil {
 		return err
 	}
 
-	err = sender.sendHeader(conn, Message.MessageHeader)
+	err = sender.sendHeader(conn, &Message.MessageHeader)
 
 	if err != nil {
 		return err
@@ -35,7 +35,7 @@ func (sender *Sender) sendMagicBytes(conn net.Conn) error {
 	return sendBytes(conn, models.MAGIC_BYTES)
 }
 
-func (sender *Sender) sendHeader(conn net.Conn, messageHeader models.MessageHeader) error {
+func (sender *Sender) sendHeader(conn net.Conn, messageHeader *models.MessageHeader) error {
 	return sendBytes(conn, messageHeader.AsBytes())
 }
 
