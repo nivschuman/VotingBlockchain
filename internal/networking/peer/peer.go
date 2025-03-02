@@ -26,7 +26,7 @@ type Peer struct {
 	Initializer     bool
 	LastMessageTime time.Time
 
-	Version models.Version
+	Version *models.Version
 }
 
 func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer bool) *Peer {
@@ -54,7 +54,6 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 func (peer *Peer) StartPeer() {
 	go peer.ReadMessages()
 	go peer.SendMessages()
-	go peer.DoHandShake()
 }
 
 func (peer *Peer) ReadMessages() {
@@ -65,8 +64,14 @@ func (peer *Peer) ReadMessages() {
 			return
 		default:
 			message, err := peer.Reader.ReadMessage(peer.Conn)
+
+			if err != nil {
+				log.Printf("error when receiving message: %v", err)
+				return
+			}
+
 			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
-			if err == nil && validChecksum {
+			if validChecksum {
 				peer.LastMessageTime = time.Now()
 				peer.ReadChannel <- *message
 			}

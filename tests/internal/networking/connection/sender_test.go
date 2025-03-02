@@ -22,7 +22,7 @@ func TestSender_SendMessage(t *testing.T) {
 	}
 
 	var receivedMagicBytes [4]byte
-	amount, err := conn.Read(receivedMagicBytes[:])
+	amount, err := conn.ReadFromRemote(receivedMagicBytes[:])
 
 	if err != nil {
 		t.Fatalf("error in reading sent magic bytes: %v", err)
@@ -33,13 +33,11 @@ func TestSender_SendMessage(t *testing.T) {
 	}
 
 	receivedMessage := make([]byte, len(testMessage.AsBytes()))
-	_, err = conn.Read(receivedMessage)
+	_, err = conn.ReadFromRemote(receivedMessage)
 
 	if err != nil {
 		t.Fatalf("error in reading message: %v", err)
 	}
-
-	t.Logf("hello % x\n", receivedMagicBytes)
 
 	if !bytes.Equal(receivedMessage, testMessage.AsBytes()) {
 		t.Fatalf("received message not equal to test message %x", receivedMessage)

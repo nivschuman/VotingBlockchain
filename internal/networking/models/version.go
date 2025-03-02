@@ -52,3 +52,7 @@ func VersionFromBytes(bytes []byte) *Version {
 		LastBlockHeight: lastBlockHeight,
 	}
 }
+
+func NewVersionMessage(version *Version) *Message {
+	return NewMessage(CommandVersion, version.AsBytes())
+}

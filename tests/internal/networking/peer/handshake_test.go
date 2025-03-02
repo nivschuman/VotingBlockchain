@@ -20,16 +20,69 @@ func getTestVersionMessage() *models.Message {
 		LastBlockHeight: 0,
 	}
 
-	return models.NewMessage(models.CommandVersion, version.AsBytes())
+	return models.NewVersionMessage(&version)
 }
 
-func TestInitializerHandshakeCompletion_GivenValidHandshake(t *testing.T) {
+func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
 	conn := mocks.NewConnMock()
 	p := peer.NewPeer(conn, nil, true)
 
-	p.DoHandShake()
+	p.StartPeer()
 
 	versionMessage := getTestVersionMessage()
-	conn.Write(versionMessage.AsBytes())
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(versionMessage.AsBytes())
 
+	verAckMessage := models.NewVerAckMessage()
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(verAckMessage.AsBytes())
+
+	err := p.WaitForHandshake(time.Second * 2)
+
+	if err != nil {
+		t.Errorf("peer didn't complete handshake: %v", err)
+	}
+
+	p.Disconnect()
+}
+
+func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
+	conn := mocks.NewConnMock()
+	p := peer.NewPeer(conn, nil, true)
+
+	p.StartPeer()
+
+	verAckMessage := models.NewVerAckMessage()
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(verAckMessage.AsBytes())
+
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(verAckMessage.AsBytes())
+
+	err := p.WaitForHandshake(time.Second * 2)
+
+	if err == nil {
+		t.Error("peer completed handshake")
+	}
+
+	p.Disconnect()
+}
+
+func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
+	conn := mocks.NewConnMock()
+	p := peer.NewPeer(conn, nil, true)
+
+	p.StartPeer()
+
+	versionMessage := getTestVersionMessage()
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(versionMessage.AsBytes())
+
+	err := p.WaitForHandshake(time.Second * 2)
+
+	if err == nil {
+		t.Error("peer completed handshake")
+	}
+
+	p.Disconnect()
 }
