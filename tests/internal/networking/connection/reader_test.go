@@ -2,6 +2,7 @@ package networking_connection_test
 
 import (
 	"testing"
+	"time"
 
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -14,7 +15,7 @@ func getTestMessage() models.Message {
 	copy(commandBytes[:], []byte(command))
 
 	payload := "TestPayload"
-	var payloadBytes []byte
+	payloadBytes := make([]byte, len(payload))
 	copy(payloadBytes[:], []byte(payload))
 
 	messageHeader := models.MessageHeader{
@@ -33,12 +34,54 @@ func TestReader_ReadMessage(t *testing.T) {
 	testMessage := getTestMessage()
 
 	conn := mocks.NewConnMock()
-	conn.Write(models.MAGIC_BYTES)
-	conn.Write(testMessage.MessageHeader.AsBytes())
-	conn.Write(testMessage.Payload)
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(testMessage.MessageHeader.AsBytes())
+	conn.WriteToLocal(testMessage.Payload)
 
 	reader := connection.NewReader()
-	message, err := reader.ReadMessage(conn)
+	message, err := reader.ReadMessageWithTimeout(conn, time.Second*5)
+
+	if err != nil {
+		t.Fatalf("error in read message: %v", err)
+	}
+
+	if message == nil {
+		t.Fatalf("message is nil")
+	}
+
+	if !message.Equals(&testMessage) {
+		t.Fatalf("messages aren't the same")
+	}
+}
+
+func TestReader_ReadMultipleMessages(t *testing.T) {
+	testMessage := getTestMessage()
+
+	conn := mocks.NewConnMock()
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(testMessage.MessageHeader.AsBytes())
+	conn.WriteToLocal(testMessage.Payload)
+
+	conn.WriteToLocal(models.MAGIC_BYTES)
+	conn.WriteToLocal(testMessage.MessageHeader.AsBytes())
+	conn.WriteToLocal(testMessage.Payload)
+
+	reader := connection.NewReader()
+	message, err := reader.ReadMessageWithTimeout(conn, time.Second*5)
+
+	if err != nil {
+		t.Fatalf("error in read message: %v", err)
+	}
+
+	if message == nil {
+		t.Fatalf("message is nil")
+	}
+
+	if !message.Equals(&testMessage) {
+		t.Fatalf("messages aren't the same")
+	}
+
+	message, err = reader.ReadMessageWithTimeout(conn, time.Second*5)
 
 	if err != nil {
 		t.Fatalf("error in read message: %v", err)

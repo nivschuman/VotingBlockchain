@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	chck "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
 )
 
 var MAGIC_BYTES = []byte{0xD9, 0xB4, 0xBE, 0xF9}
@@ -74,4 +76,17 @@ func (message *Message) AsBytes() []byte {
 	buf.Write(message.Payload)
 
 	return buf.Bytes()
+}
+
+func NewMessage(command [12]byte, payload []byte) *Message {
+	messageHeader := MessageHeader{
+		Command:  command,
+		Length:   uint32(len(payload)),
+		CheckSum: chck.CalculateChecksum(payload),
+	}
+
+	return &Message{
+		MessageHeader: messageHeader,
+		Payload:       payload,
+	}
 }

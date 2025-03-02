@@ -7,21 +7,31 @@ import (
 )
 
 type ConnMock struct {
-	*bytes.Buffer
+	RemoteBuffer *bytes.Buffer //buffer of bytes sent to connection
+	LocalBuffer  *bytes.Buffer //buffer of bytes received from connection
 }
 
 func NewConnMock() *ConnMock {
 	return &ConnMock{
-		Buffer: new(bytes.Buffer),
+		RemoteBuffer: new(bytes.Buffer),
+		LocalBuffer:  new(bytes.Buffer),
 	}
 }
 
+func (connMock *ConnMock) WriteToLocal(p []byte) (n int, err error) {
+	return connMock.LocalBuffer.Write(p)
+}
+
+func (connMock *ConnMock) ReadFromRemote(p []byte) (n int, err error) {
+	return connMock.RemoteBuffer.Read(p)
+}
+
 func (connMock *ConnMock) Read(p []byte) (n int, err error) {
-	return connMock.Buffer.Read(p)
+	return connMock.LocalBuffer.Read(p)
 }
 
 func (connMock *ConnMock) Write(p []byte) (n int, err error) {
-	return connMock.Buffer.Write(p)
+	return connMock.RemoteBuffer.Write(p)
 }
 
 func (connMock *ConnMock) Close() error {

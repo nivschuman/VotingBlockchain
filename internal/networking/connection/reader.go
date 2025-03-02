@@ -1,8 +1,11 @@
 package networking_connection
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"net"
+	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 )
@@ -15,6 +18,31 @@ type Reader struct {
 func NewReader() *Reader {
 	return &Reader{
 		PayloadBuffer: make([]byte, 0),
+	}
+}
+
+func (reader *Reader) ReadMessageWithTimeout(conn net.Conn, timeout time.Duration) (*models.Message, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	resultChan := make(chan struct {
+		message *models.Message
+		err     error
+	})
+
+	go func() {
+		message, err := reader.ReadMessage(conn)
+		resultChan <- struct {
+			message *models.Message
+			err     error
+		}{message, err}
+	}()
+
+	select {
+	case result := <-resultChan:
+		return result.message, result.err
+	case <-ctx.Done():
+		return nil, errors.New("timeout exceeded while reading message")
 	}
 }
 
@@ -82,6 +110,8 @@ func (reader *Reader) readHeader(conn net.Conn) error {
 func (reader *Reader) readPayload(conn net.Conn) error {
 	length := binary.BigEndian.Uint32(reader.HeaderBuffer[12:16])
 	totalRead := uint32(0)
+
+	reader.PayloadBuffer = make([]byte, length)
 
 	for totalRead < length {
 		n, err := conn.Read(reader.PayloadBuffer[totalRead:])
