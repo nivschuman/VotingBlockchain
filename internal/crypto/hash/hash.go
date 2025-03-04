@@ -4,6 +4,10 @@ import (
 	"crypto/sha256"
 )
 
+type Hashable interface {
+	GetHash() []byte
+}
+
 func HashString(data string) []byte {
 	hash := sha256.Sum256([]byte(data))
 	return hash[:]
