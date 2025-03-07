@@ -1,6 +1,7 @@
 package networking_peer
 
 import (
+	"io"
 	"log"
 	"net"
 	"time"
@@ -65,16 +66,25 @@ func (peer *Peer) ReadMessages() {
 		default:
 			message, err := peer.Reader.ReadMessage(peer.Conn)
 
-			if err != nil {
-				log.Printf("error when receiving message: %v", err)
+			if err == io.EOF {
+				close(peer.ReadChannel)
 				return
 			}
 
-			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
-			if validChecksum {
-				peer.LastMessageTime = time.Now()
-				peer.ReadChannel <- *message
+			if err != nil {
+				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr(), err)
+				continue
 			}
+
+			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
+
+			if !validChecksum {
+				log.Printf("invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr())
+				continue
+			}
+
+			peer.LastMessageTime = time.Now()
+			peer.ReadChannel <- *message
 		}
 	}
 }
@@ -84,11 +94,15 @@ func (peer *Peer) SendMessages() {
 		select {
 		case <-peer.StopChannel:
 			return
-		default:
-			message := <-peer.SendChannel
-			if err := peer.Sender.SendMessage(peer.Conn, &message); err != nil {
-				peer.SendChannel <- message
-				time.Sleep(time.Millisecond * 500)
+		case message := <-peer.SendChannel:
+			err := peer.Sender.SendMessage(peer.Conn, &message)
+
+			if err == io.EOF {
+				return
+			}
+
+			if err != nil {
+				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr(), err)
 			}
 		}
 	}
@@ -99,8 +113,7 @@ func (peer *Peer) ProcessMessages() {
 		select {
 		case <-peer.StopChannel:
 			return
-		default:
-			message := <-peer.ReadChannel
+		case message := <-peer.ReadChannel:
 			peer.processMessage(&message)
 		}
 	}
@@ -115,8 +128,6 @@ func (peer *Peer) Disconnect() {
 			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr(), err)
 		}
 	}
-
-	close(peer.SendChannel)
 }
 
 func (peer *Peer) processMessage(message *models.Message) {
