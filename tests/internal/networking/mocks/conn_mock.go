@@ -2,6 +2,7 @@ package networking_mocks
 
 import (
 	"bytes"
+	"log"
 	"net"
 	"time"
 )
@@ -45,7 +46,11 @@ func (c *ConnMock) LocalAddr() net.Addr {
 }
 
 func (c *ConnMock) RemoteAddr() net.Addr {
-	return nil
+	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to resolve address: %v", err)
+	}
+	return addr
 }
 
 func (c *ConnMock) SetDeadline(t time.Time) error {

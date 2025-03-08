@@ -3,6 +3,7 @@ package networking_peer
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -23,15 +24,22 @@ func (peer *Peer) WaitForHandshake(timeout time.Duration) error {
 	go peer.DoHandShake()
 
 	timeoutChan := time.After(timeout)
-	done := make(chan bool)
+	done := make(chan bool, 1)
 
 	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
-			if peer.CompletedHandshake() || peer.FailedHandshake() {
-				done <- true
+			select {
+			case <-timeoutChan:
 				return
+			case <-ticker.C:
+				if peer.CompletedHandshake() || peer.FailedHandshake() {
+					done <- true
+					return
+				}
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 
@@ -98,9 +106,17 @@ func (peer *Peer) sendVerAck() {
 }
 
 func (peer *Peer) receiveVersion() {
-	message := <-peer.ReadChannel
+	message, ok := <-peer.ReadChannel
+
+	if !ok {
+		log.Printf("Peer %s read channel closed while waiting for version message", peer.Conn.RemoteAddr().String())
+		peer.HandshakeState = Failed
+		return
+	}
 
 	if !bytes.Equal(message.MessageHeader.Command[:], models.CommandVersion[:]) {
+		log.Printf("Peer %s expected version message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
+
 		peer.HandshakeState = Failed
 		return
 	}
@@ -116,9 +132,17 @@ func (peer *Peer) receiveVersion() {
 }
 
 func (peer *Peer) receiveVerAck() {
-	message := <-peer.ReadChannel
+	message, ok := <-peer.ReadChannel
+
+	if !ok {
+		log.Printf("Peer %s read channel closed while waiting for verAck message", peer.Conn.RemoteAddr().String())
+		peer.HandshakeState = Failed
+		return
+	}
 
 	if !bytes.Equal(message.MessageHeader.Command[:], models.CommandVerAck[:]) {
+		log.Printf("Peer %s expected verAck message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
+
 		peer.HandshakeState = Failed
 		return
 	}

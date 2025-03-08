@@ -1,0 +1,7 @@
+node:
+  version: 1
+  type: 1
+
+network:
+  ip: 127.0.0.0
+  port: 8333

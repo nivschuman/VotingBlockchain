@@ -72,14 +72,14 @@ func (peer *Peer) ReadMessages() {
 			}
 
 			if err != nil {
-				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr(), err)
+				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr().String(), err)
 				continue
 			}
 
 			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
 
 			if !validChecksum {
-				log.Printf("invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr())
+				log.Printf("Invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr().String())
 				continue
 			}
 
@@ -102,7 +102,7 @@ func (peer *Peer) SendMessages() {
 			}
 
 			if err != nil {
-				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr(), err)
+				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)
 			}
 		}
 	}
@@ -125,7 +125,7 @@ func (peer *Peer) Disconnect() {
 	if peer.Conn != nil {
 		err := peer.Conn.Close()
 		if err != nil {
-			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr(), err)
+			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr().String(), err)
 		}
 	}
 }
