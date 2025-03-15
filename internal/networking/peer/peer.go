@@ -70,7 +70,7 @@ func (peer *Peer) ReadMessages() {
 		default:
 			message, err := peer.Reader.ReadMessage(peer.Conn)
 
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrClosedPipe {
 				close(peer.ReadChannel)
 				return
 			}
@@ -100,6 +100,10 @@ func (peer *Peer) SendMessages() {
 			return
 		case message := <-peer.SendChannel:
 			err := peer.Sender.SendMessage(peer.Conn, &message)
+
+			if err == io.EOF || err == io.ErrClosedPipe {
+				return
+			}
 
 			if err != nil {
 				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)
