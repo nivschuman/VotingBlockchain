@@ -6,6 +6,8 @@ import (
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	peer "github.com/nivschuman/VotingBlockchain/internal/networking/peer"
+	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
+	_ "github.com/nivschuman/VotingBlockchain/tests/init"
 	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 
@@ -24,6 +26,8 @@ func getTestVersionMessage() *models.Message {
 }
 
 func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
+	nonce.Generator = &mocks.NonceGeneratorMock{}
+
 	conn := mocks.NewConnMock()
 	p := peer.NewPeer(conn, nil, true)
 
@@ -47,6 +51,8 @@ func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
 }
 
 func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
+	nonce.Generator = &mocks.NonceGeneratorMock{}
+
 	conn := mocks.NewConnMock()
 	p := peer.NewPeer(conn, nil, true)
 
@@ -65,10 +71,13 @@ func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
 		t.Fatalf("peer completed handshake")
 	}
 
+	conn.Close()
 	p.Disconnect()
 }
 
 func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
+	nonce.Generator = &mocks.NonceGeneratorMock{}
+
 	conn := mocks.NewConnMock()
 	p := peer.NewPeer(conn, nil, true)
 

@@ -23,11 +23,10 @@ type Peer struct {
 
 	StopChannel chan bool
 
-	HandshakeState  HandshakeState
-	Initializer     bool
 	LastMessageTime time.Time
 
-	Version *models.Version
+	HandshakeDetails *HandshakeDetails
+	PeerDetails      *PeerDetails
 }
 
 func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer bool) *Peer {
@@ -39,6 +38,12 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 
 	stopChannel := make(chan bool)
 
+	handshakeDetails := &HandshakeDetails{
+		HandshakeState: initialHandshakeState(initializer),
+		Initializer:    initializer,
+		Error:          nil,
+	}
+
 	return &Peer{
 		Conn:             conn,
 		Reader:           reader,
@@ -47,8 +52,7 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 		SendChannel:      sendChannel,
 		BroadcastChannel: broadcastChannel,
 		StopChannel:      stopChannel,
-		HandshakeState:   initialHandshakeState(initializer),
-		Initializer:      initializer,
+		HandshakeDetails: handshakeDetails,
 	}
 }
 
@@ -96,10 +100,6 @@ func (peer *Peer) SendMessages() {
 			return
 		case message := <-peer.SendChannel:
 			err := peer.Sender.SendMessage(peer.Conn, &message)
-
-			if err == io.EOF {
-				return
-			}
 
 			if err != nil {
 				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)

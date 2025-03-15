@@ -3,6 +3,10 @@ package networking_models
 import (
 	"bytes"
 	"encoding/binary"
+	"time"
+
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
+	ip "github.com/nivschuman/VotingBlockchain/internal/networking/utils/ip"
 )
 
 type Version struct {
@@ -30,7 +34,7 @@ func (version *Version) AsBytes() []byte {
 }
 
 func VersionFromBytes(bytes []byte) *Version {
-	if len(bytes) < 36 {
+	if len(bytes) < 34 {
 		return nil
 	}
 
@@ -55,4 +59,23 @@ func VersionFromBytes(bytes []byte) *Version {
 
 func NewVersionMessage(version *Version) *Message {
 	return NewMessage(CommandVersion, version.AsBytes())
+}
+
+func MyVersion() (*Version, error) {
+	uint32Ip, err := ip.Ipv4ToUint32(config.GlobalConfig.NetworkConfig.Ip)
+
+	if err != nil {
+		return nil, err
+	}
+
+	//TBD add current block height
+	version := &Version{
+		ProtocolVersion: config.GlobalConfig.NodeConfig.Version,
+		NodeType:        config.GlobalConfig.NodeConfig.Type,
+		Timestamp:       time.Now().Unix(),
+		Ip:              uint32Ip,
+		Port:            config.GlobalConfig.NetworkConfig.Port,
+	}
+
+	return version, nil
 }

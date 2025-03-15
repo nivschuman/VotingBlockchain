@@ -6,6 +6,7 @@ import (
 
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
+	_ "github.com/nivschuman/VotingBlockchain/tests/init"
 	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 

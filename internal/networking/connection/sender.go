@@ -45,11 +45,7 @@ func (sender *Sender) sendPayload(conn net.Conn, payload []byte) error {
 	length := len(payload)
 
 	for totalBytesSent < len(payload) {
-		end := totalBytesSent + chunkSize
-
-		if end > length {
-			end = length
-		}
+		end := min(totalBytesSent+chunkSize, length)
 
 		chunk := payload[totalBytesSent:end]
 		err := sendBytes(conn, chunk)
