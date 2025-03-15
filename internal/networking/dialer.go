@@ -12,7 +12,7 @@ type Dialer struct {
 }
 
 func (dialer *Dialer) Dial() error {
-	address := fmt.Sprintf("%s:%d", dialer.IP, dialer.Port)
+	address := net.JoinHostPort(dialer.IP, fmt.Sprint(dialer.Port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {

@@ -1,11 +1,14 @@
 package networking_peer_test
 
 import (
+	"net"
 	"testing"
 	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	peer "github.com/nivschuman/VotingBlockchain/internal/networking/peer"
+	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
+	_ "github.com/nivschuman/VotingBlockchain/tests/init"
 	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 
@@ -24,65 +27,83 @@ func getTestVersionMessage() *models.Message {
 }
 
 func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
-	conn := mocks.NewConnMock()
-	p := peer.NewPeer(conn, nil, true)
+	nonce.Generator = &mocks.NonceGeneratorMock{}
 
-	versionMessage := getTestVersionMessage()
-	conn.WriteToLocal(models.MAGIC_BYTES)
-	conn.WriteToLocal(versionMessage.AsBytes())
+	peer1Conn, peer2Conn := net.Pipe()
 
-	verAckMessage := models.NewVerAckMessage()
-	conn.WriteToLocal(models.MAGIC_BYTES)
-	conn.WriteToLocal(verAckMessage.AsBytes())
+	go func() {
+		versionMessage := getTestVersionMessage()
+		peer2Conn.Write(models.MAGIC_BYTES)
+		peer2Conn.Write(versionMessage.AsBytes())
 
+		verAckMessage := models.NewVerAckMessage()
+		peer2Conn.Write(models.MAGIC_BYTES)
+		peer2Conn.Write(verAckMessage.AsBytes())
+	}()
+
+	p := peer.NewPeer(peer1Conn, nil, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
-
 	if err != nil {
 		t.Fatalf("peer didn't complete handshake: %v", err)
 	}
 
 	p.Disconnect()
+
+	peer1Conn.Close()
+	peer2Conn.Close()
 }
 
 func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
-	conn := mocks.NewConnMock()
-	p := peer.NewPeer(conn, nil, true)
+	nonce.Generator = &mocks.NonceGeneratorMock{}
 
-	verAckMessage := models.NewVerAckMessage()
-	conn.WriteToLocal(models.MAGIC_BYTES)
-	conn.WriteToLocal(verAckMessage.AsBytes())
+	peer1Conn, peer2Conn := net.Pipe()
 
-	conn.WriteToLocal(models.MAGIC_BYTES)
-	conn.WriteToLocal(verAckMessage.AsBytes())
+	go func() {
+		verAckMessage := models.NewVerAckMessage()
+		peer2Conn.Write(models.MAGIC_BYTES)
+		peer2Conn.Write(verAckMessage.AsBytes())
 
+		peer2Conn.Write(models.MAGIC_BYTES)
+		peer2Conn.Write(verAckMessage.AsBytes())
+	}()
+
+	p := peer.NewPeer(peer1Conn, nil, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
-
 	if err == nil {
 		t.Fatalf("peer completed handshake")
 	}
 
 	p.Disconnect()
+
+	peer1Conn.Close()
+	peer2Conn.Close()
 }
 
 func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
-	conn := mocks.NewConnMock()
-	p := peer.NewPeer(conn, nil, true)
+	nonce.Generator = &mocks.NonceGeneratorMock{}
 
-	versionMessage := getTestVersionMessage()
-	conn.WriteToLocal(models.MAGIC_BYTES)
-	conn.WriteToLocal(versionMessage.AsBytes())
+	peer1Conn, peer2Conn := net.Pipe()
 
+	go func() {
+		versionMessage := getTestVersionMessage()
+		peer2Conn.Write(models.MAGIC_BYTES)
+		peer2Conn.Write(versionMessage.AsBytes())
+	}()
+
+	p := peer.NewPeer(peer1Conn, nil, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
-
 	if err == nil {
 		t.Fatalf("peer completed handshake")
 	}
 
 	p.Disconnect()
+
+	peer1Conn.Close()
+	peer2Conn.Close()
 }

@@ -17,7 +17,7 @@ type Listener struct {
 func (listener *Listener) Listen(wg *sync.WaitGroup) error {
 	defer wg.Done()
 
-	address := fmt.Sprintf("%s:%d", listener.IP, listener.Port)
+	address := net.JoinHostPort(listener.IP, fmt.Sprint(listener.Port))
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
 		return err

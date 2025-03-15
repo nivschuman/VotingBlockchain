@@ -23,11 +23,10 @@ type Peer struct {
 
 	StopChannel chan bool
 
-	HandshakeState  HandshakeState
-	Initializer     bool
 	LastMessageTime time.Time
 
-	Version *models.Version
+	HandshakeDetails *HandshakeDetails
+	PeerDetails      *PeerDetails
 }
 
 func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer bool) *Peer {
@@ -39,6 +38,12 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 
 	stopChannel := make(chan bool)
 
+	handshakeDetails := &HandshakeDetails{
+		HandshakeState: initialHandshakeState(initializer),
+		Initializer:    initializer,
+		Error:          nil,
+	}
+
 	return &Peer{
 		Conn:             conn,
 		Reader:           reader,
@@ -47,8 +52,7 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 		SendChannel:      sendChannel,
 		BroadcastChannel: broadcastChannel,
 		StopChannel:      stopChannel,
-		HandshakeState:   initialHandshakeState(initializer),
-		Initializer:      initializer,
+		HandshakeDetails: handshakeDetails,
 	}
 }
 
@@ -66,7 +70,7 @@ func (peer *Peer) ReadMessages() {
 		default:
 			message, err := peer.Reader.ReadMessage(peer.Conn)
 
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrClosedPipe {
 				close(peer.ReadChannel)
 				return
 			}
@@ -97,7 +101,7 @@ func (peer *Peer) SendMessages() {
 		case message := <-peer.SendChannel:
 			err := peer.Sender.SendMessage(peer.Conn, &message)
 
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrClosedPipe {
 				return
 			}
 
