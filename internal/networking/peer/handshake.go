@@ -23,7 +23,7 @@ const (
 
 type HandshakeDetails struct {
 	HandshakeState HandshakeState
-	Initializer    bool
+	Initializer    bool //true if we need to initialize handshake with peer
 	Nonce          uint64
 	Error          error
 }
@@ -133,7 +133,7 @@ func (peer *Peer) sendVerAck() {
 }
 
 func (peer *Peer) receiveVersion() {
-	message, ok := <-peer.ReadChannel
+	message, ok := <-peer.readChannel
 
 	if !ok {
 		peer.HandshakeDetails.Error = fmt.Errorf("peer %s read channel closed while waiting for version message", peer.Conn.RemoteAddr().String())
@@ -160,11 +160,11 @@ func (peer *Peer) receiveVersion() {
 		return
 	}
 
-	peer.HandshakeDetails.HandshakeState = ReceiveVerAck
+	peer.HandshakeDetails.HandshakeState = SendVersion
 }
 
 func (peer *Peer) receiveVerAck() {
-	message, ok := <-peer.ReadChannel
+	message, ok := <-peer.readChannel
 
 	if !ok {
 		log.Printf("Peer %s read channel closed while waiting for verAck message", peer.Conn.RemoteAddr().String())
@@ -191,6 +191,7 @@ func initialHandshakeState(initializer bool) HandshakeState {
 	if initializer {
 		return SendVersion
 	}
+
 	return ReceiveVersion
 }
 

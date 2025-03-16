@@ -1,6 +1,7 @@
 package networking_peer
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -14,22 +15,25 @@ import (
 type Peer struct {
 	Conn net.Conn
 
-	Reader *connection.Reader
-	Sender *connection.Sender
-
-	ReadChannel      chan models.Message
-	SendChannel      chan models.Message
-	BroadcastChannel <-chan models.Message
-
-	StopChannel chan bool
-
-	LastMessageTime time.Time
-
 	HandshakeDetails *HandshakeDetails
 	PeerDetails      *PeerDetails
+	PingPongDetails  *PingPongDetails
+
+	SendChannel    chan<- models.Message
+	MessageHandler func(*Peer, *models.Message)
+
+	Remove       bool
+	Disconnected bool
+
+	reader *connection.Reader
+	sender *connection.Sender
+
+	readChannel chan models.Message
+	sendChannel chan models.Message
+	stopChannel chan bool
 }
 
-func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer bool) *Peer {
+func NewPeer(conn net.Conn, initializer bool) *Peer {
 	reader := connection.NewReader()
 	sender := connection.NewSender()
 
@@ -44,15 +48,25 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 		Error:          nil,
 	}
 
+	pingPongDetails := &PingPongDetails{
+		Nonce:    0,
+		PingTime: time.Now(),
+		PongTime: time.Now(),
+	}
+
 	return &Peer{
 		Conn:             conn,
-		Reader:           reader,
-		Sender:           sender,
-		ReadChannel:      readChannel,
-		SendChannel:      sendChannel,
-		BroadcastChannel: broadcastChannel,
-		StopChannel:      stopChannel,
 		HandshakeDetails: handshakeDetails,
+		PeerDetails:      nil,
+		PingPongDetails:  pingPongDetails,
+		Disconnected:     false,
+		Remove:           false,
+		SendChannel:      sendChannel,
+		reader:           reader,
+		sender:           sender,
+		readChannel:      readChannel,
+		sendChannel:      sendChannel,
+		stopChannel:      stopChannel,
 	}
 }
 
@@ -61,17 +75,23 @@ func (peer *Peer) StartPeer() {
 	go peer.SendMessages()
 }
 
+func (peer *Peer) StartProcessing(messageHandler func(peer *Peer, message *models.Message)) {
+	peer.MessageHandler = messageHandler
+	go peer.ProcessMessages()
+}
+
 func (peer *Peer) ReadMessages() {
 	for {
 		select {
-		case <-peer.StopChannel:
-			close(peer.ReadChannel)
+		case <-peer.stopChannel:
+			close(peer.readChannel)
 			return
 		default:
-			message, err := peer.Reader.ReadMessage(peer.Conn)
+			message, err := peer.reader.ReadMessage(peer.Conn)
 
-			if err == io.EOF || err == io.ErrClosedPipe {
-				close(peer.ReadChannel)
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				close(peer.readChannel)
+				peer.Remove = true
 				return
 			}
 
@@ -87,8 +107,7 @@ func (peer *Peer) ReadMessages() {
 				continue
 			}
 
-			peer.LastMessageTime = time.Now()
-			peer.ReadChannel <- *message
+			peer.readChannel <- *message
 		}
 	}
 }
@@ -96,12 +115,13 @@ func (peer *Peer) ReadMessages() {
 func (peer *Peer) SendMessages() {
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			return
-		case message := <-peer.SendChannel:
-			err := peer.Sender.SendMessage(peer.Conn, &message)
+		case message := <-peer.sendChannel:
+			err := peer.sender.SendMessage(peer.Conn, &message)
 
-			if err == io.EOF || err == io.ErrClosedPipe {
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				peer.Remove = true
 				return
 			}
 
@@ -115,16 +135,16 @@ func (peer *Peer) SendMessages() {
 func (peer *Peer) ProcessMessages() {
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			return
-		case message := <-peer.ReadChannel:
-			peer.processMessage(&message)
+		case message := <-peer.readChannel:
+			peer.MessageHandler(peer, &message)
 		}
 	}
 }
 
 func (peer *Peer) Disconnect() {
-	close(peer.StopChannel)
+	close(peer.stopChannel)
 
 	if peer.Conn != nil {
 		err := peer.Conn.Close()
@@ -132,8 +152,6 @@ func (peer *Peer) Disconnect() {
 			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr().String(), err)
 		}
 	}
-}
 
-func (peer *Peer) processMessage(message *models.Message) {
-
+	peer.Disconnected = true
 }

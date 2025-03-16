@@ -1,4 +1,4 @@
-package networking
+package networking_connector
 
 import (
 	"fmt"
@@ -6,20 +6,22 @@ import (
 )
 
 type Dialer struct {
-	IP                string
-	Port              int
 	ConnectionHandler ConnectionHandler
 }
 
-func (dialer *Dialer) Dial() error {
-	address := net.JoinHostPort(dialer.IP, fmt.Sprint(dialer.Port))
+func NewDialer() *Dialer {
+	return &Dialer{}
+}
+
+func (dialer *Dialer) Dial(ip string, port uint16) error {
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %v", address, err)
 	}
 
-	go dialer.ConnectionHandler(conn)
+	go dialer.ConnectionHandler(conn, true)
 
 	return nil
 }

@@ -18,7 +18,7 @@ func Ipv4ToUint32(ipStr string) (uint32, error) {
 		return 0, fmt.Errorf("invalid IP address: %s", ipStr)
 	}
 
-	ip = ip.To4() // Ensure it's IPv4
+	ip = ip.To4()
 	if ip == nil {
 		return 0, fmt.Errorf("not a valid IPv4 address: %s", ipStr)
 	}

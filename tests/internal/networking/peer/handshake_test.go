@@ -41,7 +41,7 @@ func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
 		peer2Conn.Write(verAckMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, nil, true)
+	p := peer.NewPeer(peer1Conn, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
@@ -69,7 +69,7 @@ func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
 		peer2Conn.Write(verAckMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, nil, true)
+	p := peer.NewPeer(peer1Conn, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
@@ -94,7 +94,7 @@ func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
 		peer2Conn.Write(versionMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, nil, true)
+	p := peer.NewPeer(peer1Conn, true)
 	p.StartPeer()
 
 	err := p.WaitForHandshake(time.Second * 2)
