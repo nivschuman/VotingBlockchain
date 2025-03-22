@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
@@ -20,6 +21,7 @@ type Peer struct {
 	PingPongDetails  *PingPongDetails
 
 	SendChannel    chan<- models.Message
+	StopChannel    <-chan bool
 	MessageHandler func(*Peer, *models.Message)
 
 	Remove       bool
@@ -30,7 +32,9 @@ type Peer struct {
 
 	readChannel chan models.Message
 	sendChannel chan models.Message
-	stopChannel chan bool
+
+	stopChannel    chan bool
+	disconnectOnce sync.Once
 }
 
 func NewPeer(conn net.Conn, initializer bool) *Peer {
@@ -62,6 +66,7 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 		Disconnected:     false,
 		Remove:           false,
 		SendChannel:      sendChannel,
+		StopChannel:      stopChannel,
 		reader:           reader,
 		sender:           sender,
 		readChannel:      readChannel,
@@ -83,7 +88,7 @@ func (peer *Peer) StartProcessing(messageHandler func(peer *Peer, message *model
 func (peer *Peer) ReadMessages() {
 	for {
 		select {
-		case <-peer.stopChannel:
+		case <-peer.StopChannel:
 			close(peer.readChannel)
 			return
 		default:
@@ -91,7 +96,7 @@ func (peer *Peer) ReadMessages() {
 
 			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
 				close(peer.readChannel)
-				peer.Remove = true
+				peer.Disconnect()
 				return
 			}
 
@@ -115,13 +120,13 @@ func (peer *Peer) ReadMessages() {
 func (peer *Peer) SendMessages() {
 	for {
 		select {
-		case <-peer.stopChannel:
+		case <-peer.StopChannel:
 			return
 		case message := <-peer.sendChannel:
 			err := peer.sender.SendMessage(peer.Conn, &message)
 
 			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
-				peer.Remove = true
+				peer.Disconnect()
 				return
 			}
 
@@ -135,7 +140,7 @@ func (peer *Peer) SendMessages() {
 func (peer *Peer) ProcessMessages() {
 	for {
 		select {
-		case <-peer.stopChannel:
+		case <-peer.StopChannel:
 			return
 		case message := <-peer.readChannel:
 			peer.MessageHandler(peer, &message)
@@ -144,14 +149,16 @@ func (peer *Peer) ProcessMessages() {
 }
 
 func (peer *Peer) Disconnect() {
-	close(peer.stopChannel)
+	peer.disconnectOnce.Do(func() {
+		close(peer.stopChannel)
 
-	if peer.Conn != nil {
-		err := peer.Conn.Close()
-		if err != nil {
-			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+		if peer.Conn != nil {
+			err := peer.Conn.Close()
+			if err != nil {
+				log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+			}
 		}
-	}
 
-	peer.Disconnected = true
+		peer.Disconnected = true
+	})
 }
