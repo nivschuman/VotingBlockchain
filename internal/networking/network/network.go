@@ -58,7 +58,7 @@ func (network *Network) StopNetwork() {
 
 	network.PeersMutex.Lock()
 	for _, peer := range network.Peers {
-		peer.Disconnect()
+		network.RemovePeer(peer)
 	}
 	network.Peers = make(PeersMap)
 	network.PeersMutex.Unlock()
@@ -72,12 +72,16 @@ func (network *Network) DialPeers() {
 	//TBD must go over all peers in database and dial them...
 }
 
-func (network *Network) BroadcastMessage(msg models.Message) {
+func (network *Network) BroadcastMessage(msg *models.Message) {
 	network.PeersMutex.RLock()
 
 	for _, peer := range network.Peers {
 		if peer.CompletedHandshake() && !peer.Remove && !peer.Disconnected {
-			peer.SendChannel <- msg
+			select {
+			case <-peer.StopChannel:
+				continue
+			case peer.SendChannel <- *msg:
+			}
 		}
 	}
 
@@ -145,7 +149,12 @@ func (network *Network) SendPings() {
 					}
 					peer.PingPongDetails.PingTime = time.Now()
 					peer.PingPongDetails.Nonce = n
-					peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n))
+
+					select {
+					case <-peer.StopChannel:
+						continue
+					case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
+					}
 				}
 			}
 			network.PeersMutex.RUnlock()
@@ -157,6 +166,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	//already connected to peer
 	network.PeersMutex.RLock()
 	if _, ok := network.Peers[conn.RemoteAddr().String()]; ok {
+		network.PeersMutex.RUnlock()
 		return
 	}
 	network.PeersMutex.RUnlock()
@@ -183,7 +193,11 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 func (network *Network) processMessage(fromPeer *peer.Peer, message *models.Message) {
 	//ping
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandPing[:]) {
-		fromPeer.SendChannel <- *models.NewMessage(models.CommandPong, message.Payload)
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *models.NewMessage(models.CommandPong, message.Payload):
+		}
 	}
 
 	//pong

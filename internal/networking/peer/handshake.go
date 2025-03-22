@@ -117,12 +117,24 @@ func (peer *Peer) sendVersion() {
 	}
 
 	message := models.NewVersionMessage(myVersion)
-	peer.SendChannel <- *message
+
+	select {
+	case <-peer.StopChannel:
+		peer.HandshakeDetails.HandshakeState = Failed
+		return
+	case peer.SendChannel <- *message:
+	}
 }
 
 func (peer *Peer) sendVerAck() {
 	verAckMessage := models.NewVerAckMessage()
-	peer.SendChannel <- *verAckMessage
+
+	select {
+	case <-peer.StopChannel:
+		peer.HandshakeDetails.HandshakeState = Failed
+		return
+	case peer.SendChannel <- *verAckMessage:
+	}
 
 	if peer.HandshakeDetails.Initializer {
 		peer.HandshakeDetails.HandshakeState = ReceiveVerAck
