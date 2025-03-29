@@ -5,7 +5,24 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
+	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 )
+
+func InitializeTestDatabase() {
+	err := db.InitializeGlobalDB()
+
+	if err != nil {
+		log.Fatalf("Failed to initialize db: %v", err)
+	}
+
+	err = db.ResetDatabase(db.GlobalDB)
+
+	if err != nil {
+		log.Fatalf("Failed to initialize db: %v", err)
+	}
+}
 
 func init() {
 	err := os.Setenv("APP_ENV", "test")
@@ -21,6 +38,12 @@ func init() {
 	}
 
 	os.Chdir(projectRoot)
+
+	err = config.InitializeGlobalConfig()
+
+	if err != nil {
+		log.Fatalf("Failed to initialize global config: %v", err)
+	}
 }
 
 func getProjectRoot() (string, error) {
