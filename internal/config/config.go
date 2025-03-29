@@ -1,8 +1,8 @@
 package config
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"os"
 
 	"gopkg.in/yaml.v2"
@@ -13,25 +13,31 @@ type Config struct {
 	NodeConfig    `yaml:"node"`
 }
 
-var GlobalConfig *Config = LoadGlobalConfig()
+var GlobalConfig *Config = nil
 
-func LoadGlobalConfig() *Config {
+func InitializeGlobalConfig() error {
+	if GlobalConfig != nil {
+		return nil
+	}
+
+	var err error
+	GlobalConfig, err = LoadAppConfig()
+
+	return err
+}
+
+func LoadAppConfig() (*Config, error) {
 	env := os.Getenv("APP_ENV")
 
 	if env == "" {
-		log.Fatal("APP_ENV environment variable not set")
+		return nil, errors.New("APP_ENV environment variable not set")
 	}
 
 	configFile := fmt.Sprintf("config/config-%s.yml", env)
-	config, err := LoadConfig(configFile)
-	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
-	}
-
-	return config
+	return LoadConfigFile(configFile)
 }
 
-func LoadConfig(path string) (*Config, error) {
+func LoadConfigFile(path string) (*Config, error) {
 	config := &Config{}
 
 	file, err := os.Open(path)
