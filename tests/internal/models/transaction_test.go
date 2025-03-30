@@ -16,12 +16,16 @@ func getTestTransaction() (*models.Transaction, error) {
 		return nil, err
 	}
 
-	transaction := models.Transaction{
+	transaction := &models.Transaction{
+		Version:     1,
 		CandidateId: 1,
 		WalletId:    wallet.Id,
+		Signature:   make([]byte, 72),
 	}
 
-	return &transaction, nil
+	transaction.SetId()
+
+	return transaction, nil
 }
 
 func generateExpectedTransactionHash(transaction *models.Transaction) []byte {
@@ -88,5 +92,24 @@ func TestTransactionAsBytes(t *testing.T) {
 
 	if !(bytes.Equal(expectedBytes, transaction.AsBytes())) {
 		t.Fatalf("expected bytes aren't the same as received bytes")
+	}
+}
+
+func TestTransactionFromBytes(t *testing.T) {
+	transaction, err := getTestTransaction()
+
+	if err != nil {
+		t.Fatalf("error in getTestTransaction: %v", err)
+	}
+
+	transactionBytes := transaction.AsBytes()
+	parsedTransaction, err := models.TransactionFromBytes(transactionBytes)
+
+	if err != nil {
+		t.Fatalf("error in transaction from bytes: %v", err)
+	}
+
+	if !bytes.Equal(parsedTransaction.Id, transaction.Id) {
+		t.Fatalf("bad id for parsed transaction")
 	}
 }

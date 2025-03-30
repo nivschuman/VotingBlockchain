@@ -13,7 +13,6 @@ import (
 )
 
 var modelsToMigrate = []interface{}{
-	&models.ElectionDB{},
 	&models.TransactionDB{},
 	&models.BlockDB{},
 	&models.WalletDB{},
