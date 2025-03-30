@@ -17,11 +17,10 @@ func getTestWallet() (*models.Wallet, *ppk.KeyPair, error) {
 		return nil, nil, err
 	}
 
-	election := getTestElection()
-
 	wallet := &models.Wallet{
-		VoterPublicKey: keyPair.PublicKey.AsBytes(),
-		ElectionId:     election.Id,
+		Version:             1,
+		VoterPublicKey:      keyPair.PublicKey.AsBytes(),
+		GovernmentSignature: make([]byte, 72),
 	}
 
 	wallet.SetId()
@@ -34,7 +33,6 @@ func generateExpectedWalletHash(wallet *models.Wallet) []byte {
 
 	binary.Write(buf, binary.BigEndian, wallet.Version)
 	buf.Write(wallet.VoterPublicKey)
-	buf.Write(wallet.ElectionId)
 
 	return hash.HashBytes(buf.Bytes())
 }
@@ -44,7 +42,6 @@ func generateExpectedWalletBytes(wallet *models.Wallet) []byte {
 
 	binary.Write(buf, binary.BigEndian, wallet.Version)
 	buf.Write(wallet.VoterPublicKey)
-	buf.Write(wallet.ElectionId)
 	binary.Write(buf, binary.BigEndian, uint32(len(wallet.GovernmentSignature)))
 	buf.Write(wallet.GovernmentSignature)
 
@@ -143,5 +140,24 @@ func TestWalletVerifySignature_WhenSignatureIsInvalid(t *testing.T) {
 
 	if valid {
 		t.Fatalf("verify signature returned true")
+	}
+}
+
+func TestWalletFromBytes(t *testing.T) {
+	wallet, _, err := getTestWallet()
+
+	if err != nil {
+		t.Fatalf("error in getTestWallet: %v", err)
+	}
+
+	walletBytes := wallet.AsBytes()
+	parsedWallet, err := models.WalletFromBytes(walletBytes)
+
+	if err != nil {
+		t.Fatalf("error in wallet from bytes: %v", err)
+	}
+
+	if !bytes.Equal(wallet.Id, parsedWallet.Id) {
+		t.Fatalf("bad id for parsed wallet")
 	}
 }

@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/big"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
@@ -19,10 +20,9 @@ type BlockHeader struct {
 	MinerPublicKey  []byte //public key of miner that made the block, marshal compressed, 33 bytes
 }
 
-type Block[T Content] struct {
-	Header      BlockHeader //header of block
-	ContentType uint16      //code of type of content in block
-	Content     []T         //array of block content
+type Block struct {
+	Header  BlockHeader //header of block
+	Content []Content   //array of block content
 }
 
 func (blockHeader *BlockHeader) GetHash() []byte {
@@ -54,17 +54,111 @@ func (blockHeader *BlockHeader) AsBytes() []byte {
 	return buf.Bytes()
 }
 
-func (block *Block[T]) AsBytes() []byte {
+func BlockHeaderFromBytes(b []byte) (*BlockHeader, error) {
+	buf := bytes.NewReader(b)
+	blockHeader := &BlockHeader{}
+
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Version); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Timestamp); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.NBits); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Nonce); err != nil {
+		return nil, err
+	}
+
+	blockHeader.PreviousBlockId = make([]byte, 32)
+	if _, err := buf.Read(blockHeader.PreviousBlockId); err != nil {
+		return nil, err
+	}
+
+	blockHeader.MerkleRoot = make([]byte, 32)
+	if _, err := buf.Read(blockHeader.MerkleRoot); err != nil {
+		return nil, err
+	}
+
+	blockHeader.MinerPublicKey = make([]byte, 33)
+	if _, err := buf.Read(blockHeader.MinerPublicKey); err != nil {
+		return nil, err
+	}
+
+	blockHeader.SetId()
+
+	return blockHeader, nil
+}
+
+func (block *Block) AsBytes() []byte {
 	buf := new(bytes.Buffer)
 
 	buf.Write(block.Header.AsBytes())
-	binary.Write(buf, binary.BigEndian, uint16(block.ContentType))
 
 	for _, content := range block.Content {
-		buf.Write(content.AsBytes())
+		binary.Write(buf, binary.BigEndian, content.Type())
+
+		contentBytes := content.AsBytes()
+		binary.Write(buf, binary.BigEndian, uint32(len(contentBytes)))
+		buf.Write(contentBytes)
 	}
 
 	return buf.Bytes()
+}
+
+func BlockFromBytes(b []byte) (*Block, error) {
+	buf := bytes.NewReader(b)
+	block := &Block{}
+
+	headerBytes := make([]byte, 117)
+	if _, err := buf.Read(headerBytes); err != nil {
+		return nil, err
+	}
+
+	blockHeader, err := BlockHeaderFromBytes(headerBytes)
+	if err != nil {
+		return nil, err
+	}
+	block.Header = *blockHeader
+
+	for buf.Len() > 0 {
+		var contentType uint16
+		if err := binary.Read(buf, binary.BigEndian, &contentType); err != nil {
+			return nil, err
+		}
+
+		var contentLength uint32
+		if err := binary.Read(buf, binary.BigEndian, &contentLength); err != nil {
+			return nil, err
+		}
+
+		contentBytes := make([]byte, contentLength)
+		if _, err := buf.Read(contentBytes); err != nil {
+			return nil, err
+		}
+
+		content, err := contentFromBytes(contentType, contentBytes)
+
+		if err != nil {
+			return nil, err
+		}
+
+		block.Content = append(block.Content, content)
+	}
+
+	return block, nil
+}
+
+func contentFromBytes(contentType uint16, b []byte) (Content, error) {
+	switch contentType {
+	case TRANSACTION_TYPE:
+		return TransactionFromBytes(b)
+	case WALLET_TYPE:
+		return WalletFromBytes(b)
+	default:
+		return nil, fmt.Errorf("unknown content type: %d", contentType)
+	}
 }
 
 func getTargetFromNBits(nBits uint32) *big.Int {

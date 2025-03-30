@@ -14,7 +14,6 @@ type BlockHeaderDB struct {
 }
 
 type BlockDB struct {
-	ContentType   uint16 `gorm:"column:content_type:not null"`
 	Height        uint64 `gorm:"column:height:not null"`
 	InActiveChain bool   `gorm:"column:in_active_chain:not null"`
 
@@ -22,7 +21,6 @@ type BlockDB struct {
 	BlockHeader   BlockHeaderDB `gorm:"foreignKey:BlockHeaderId;references:Id"`
 
 	Transactions []TransactionDB `gorm:"many2many:transactions_blocks;foreignKey:BlockHeaderId;joinForeignKey:block_id;References:Id;joinReferences:transaction_id"`
-	Elections    []ElectionDB    `gorm:"many2many:elections_blocks;foreignKey:BlockHeaderId;joinForeignKey:block_id;References:Id;joinReferences:election_id"`
 	Wallets      []WalletDB      `gorm:"many2many:wallets_blocks;foreignKey:BlockHeaderId;joinForeignKey:block_id;References:Id;joinReferences:wallet_id"`
 }
 
