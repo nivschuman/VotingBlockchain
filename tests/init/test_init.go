@@ -8,10 +8,17 @@ import (
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
+	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 )
 
 func InitializeTestDatabase() {
-	err := db.InitializeGlobalDB()
+	err := db.DeleteDatabase()
+
+	if err != nil {
+		log.Fatalf("Failed to delete db: %v", err)
+	}
+
+	err = db.InitializeGlobalDB()
 
 	if err != nil {
 		log.Fatalf("Failed to initialize db: %v", err)
@@ -22,6 +29,22 @@ func InitializeTestDatabase() {
 	if err != nil {
 		log.Fatalf("Failed to initialize db: %v", err)
 	}
+
+	err = InitializeRepositories()
+
+	if err != nil {
+		log.Fatalf("Failed to initialize repositories: %v", err)
+	}
+}
+
+func InitializeRepositories() error {
+	err := repositories.InitializeGlobalBlockRepository(db.GlobalDB)
+
+	if err != nil {
+		return err
+	}
+
+	return repositories.InitializeGlobalTransactionRepository(db.GlobalDB)
 }
 
 func init() {

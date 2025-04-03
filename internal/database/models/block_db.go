@@ -1,5 +1,9 @@
 package db_models
 
+import (
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
+)
+
 type BlockHeaderDB struct {
 	Id             []byte `gorm:"primaryKey;column:id"`
 	Version        int32  `gorm:"column:version;not null"`
@@ -19,9 +23,6 @@ type BlockDB struct {
 
 	BlockHeaderId []byte        `gorm:"primaryKey;column:block_header_id"`
 	BlockHeader   BlockHeaderDB `gorm:"foreignKey:BlockHeaderId;references:Id"`
-
-	Transactions []TransactionDB `gorm:"many2many:transactions_blocks;foreignKey:BlockHeaderId;joinForeignKey:block_id;References:Id;joinReferences:transaction_id"`
-	Wallets      []WalletDB      `gorm:"many2many:wallets_blocks;foreignKey:BlockHeaderId;joinForeignKey:block_id;References:Id;joinReferences:wallet_id"`
 }
 
 func (BlockHeaderDB) TableName() string {
@@ -30,4 +31,9 @@ func (BlockHeaderDB) TableName() string {
 
 func (BlockDB) TableName() string {
 	return "blocks"
+}
+
+func (blockHeader *BlockHeaderDB) IsHashBelowTarget() bool {
+	target := difficulty.GetTargetFromNBits(blockHeader.NBits)
+	return difficulty.IsHashBelowTarget(blockHeader.Id, target)
 }

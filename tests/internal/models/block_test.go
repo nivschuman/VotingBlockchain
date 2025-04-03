@@ -31,20 +31,13 @@ func getTestBlock() (*models.Block, error) {
 		Header: blockHeader,
 	}
 
-	wallet, _, err := getTestWallet()
+	transaction, _, err := getTestTransaction()
 
 	if err != nil {
 		return nil, err
 	}
 
-	transaction, err := getTestTransaction()
-
-	if err != nil {
-		return nil, err
-	}
-
-	block.Content = append(block.Content, wallet)
-	block.Content = append(block.Content, transaction)
+	block.Transactions = append(block.Transactions, transaction)
 
 	return block, nil
 }
@@ -82,29 +75,12 @@ func TestBlockFromBytes(t *testing.T) {
 		t.Fatalf("bad id for parsed block")
 	}
 
-	if len(parsedBlock.Content) != len(block.Content) {
-		t.Fatalf("have %d content but %d content was parsed", len(block.Content), len(parsedBlock.Content))
+	if len(parsedBlock.Transactions) != len(block.Transactions) {
+		t.Fatalf("have %d transactions but %d transactions were parsed", len(block.Transactions), len(parsedBlock.Transactions))
 	}
 
-	parsedWallet, ok := parsedBlock.Content[0].(*models.Wallet)
-
-	if !ok {
-		t.Fatalf("first item in parsed block isn't a wallet")
-	}
-
-	wallet, _ := block.Content[0].(*models.Wallet)
-
-	if !bytes.Equal(wallet.Id, parsedWallet.Id) {
-		t.Fatalf("bad wallet id")
-	}
-
-	parsedTransaction, ok := parsedBlock.Content[1].(*models.Transaction)
-
-	if !ok {
-		t.Fatalf("second item in parsed block isn't a transaction")
-	}
-
-	transaction, _ := block.Content[1].(*models.Transaction)
+	parsedTransaction := parsedBlock.Transactions[0]
+	transaction := block.Transactions[0]
 
 	if !bytes.Equal(transaction.Id, parsedTransaction.Id) {
 		t.Fatalf("bad transaction id")

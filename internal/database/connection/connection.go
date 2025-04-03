@@ -12,11 +12,11 @@ import (
 	models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 )
 
-var modelsToMigrate = []interface{}{
+var modelsToMigrate = []any{
 	&models.TransactionDB{},
 	&models.BlockDB{},
-	&models.WalletDB{},
 	&models.BlockHeaderDB{},
+	&models.TransactionBlockDB{},
 }
 
 var GlobalDB *gorm.DB = nil
