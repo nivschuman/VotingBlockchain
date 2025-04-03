@@ -40,6 +40,15 @@ func GetAppDatabaseConnection() (*gorm.DB, error) {
 	}
 
 	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
+
+	dir := "databases"
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			return nil, fmt.Errorf("failed to create databases directory: %w", err)
+		}
+		log.Printf("Created directory '%s'", dir)
+	}
+
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 
 	if err != nil {
