@@ -3,10 +3,9 @@ package models
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
-	"math/big"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 )
 
 type BlockHeader struct {
@@ -21,8 +20,8 @@ type BlockHeader struct {
 }
 
 type Block struct {
-	Header  BlockHeader //header of block
-	Content []Content   //array of block content
+	Header       BlockHeader    //header of block
+	Transactions []*Transaction //transactions inside block (ordered)
 }
 
 func (blockHeader *BlockHeader) GetHash() []byte {
@@ -34,10 +33,8 @@ func (blockHeader *BlockHeader) SetId() {
 }
 
 func (blockHeader *BlockHeader) IsHashBelowTarget() bool {
-	targetBigInt := getTargetFromNBits(blockHeader.NBits)
-	blockBigInt := new(big.Int).SetBytes(blockHeader.GetHash())
-
-	return blockBigInt.Cmp(targetBigInt) <= 0
+	target := difficulty.GetTargetFromNBits(blockHeader.NBits)
+	return difficulty.IsHashBelowTarget(blockHeader.GetHash(), target)
 }
 
 func (blockHeader *BlockHeader) AsBytes() []byte {
@@ -96,12 +93,11 @@ func (block *Block) AsBytes() []byte {
 
 	buf.Write(block.Header.AsBytes())
 
-	for _, content := range block.Content {
-		binary.Write(buf, binary.BigEndian, content.Type())
-
-		contentBytes := content.AsBytes()
-		binary.Write(buf, binary.BigEndian, uint32(len(contentBytes)))
-		buf.Write(contentBytes)
+	binary.Write(buf, binary.BigEndian, uint32(len(block.Transactions)))
+	for _, tx := range block.Transactions {
+		txBytes := tx.AsBytes()
+		binary.Write(buf, binary.BigEndian, uint32(len(txBytes)))
+		buf.Write(txBytes)
 	}
 
 	return buf.Bytes()
@@ -122,61 +118,29 @@ func BlockFromBytes(b []byte) (*Block, error) {
 	}
 	block.Header = *blockHeader
 
-	for buf.Len() > 0 {
-		var contentType uint16
-		if err := binary.Read(buf, binary.BigEndian, &contentType); err != nil {
+	var numTransactions uint32
+	if err := binary.Read(buf, binary.BigEndian, &numTransactions); err != nil {
+		return nil, err
+	}
+
+	for i := uint32(0); i < numTransactions; i++ {
+		var txLength uint32
+		if err := binary.Read(buf, binary.BigEndian, &txLength); err != nil {
 			return nil, err
 		}
 
-		var contentLength uint32
-		if err := binary.Read(buf, binary.BigEndian, &contentLength); err != nil {
+		txBytes := make([]byte, txLength)
+		if _, err := buf.Read(txBytes); err != nil {
 			return nil, err
 		}
 
-		contentBytes := make([]byte, contentLength)
-		if _, err := buf.Read(contentBytes); err != nil {
-			return nil, err
-		}
-
-		content, err := contentFromBytes(contentType, contentBytes)
-
+		tx, err := TransactionFromBytes(txBytes)
 		if err != nil {
 			return nil, err
 		}
 
-		block.Content = append(block.Content, content)
+		block.Transactions = append(block.Transactions, tx)
 	}
 
 	return block, nil
-}
-
-func contentFromBytes(contentType uint16, b []byte) (Content, error) {
-	switch contentType {
-	case TRANSACTION_TYPE:
-		return TransactionFromBytes(b)
-	case WALLET_TYPE:
-		return WalletFromBytes(b)
-	default:
-		return nil, fmt.Errorf("unknown content type: %d", contentType)
-	}
-}
-
-func getTargetFromNBits(nBits uint32) *big.Int {
-	// Extract exponent (first byte)
-	exponent := nBits >> 24
-
-	// Extract coefficient (lower 3 bytes)
-	coefficient := nBits & 0x00FFFFFF
-
-	// Initialize a big integer for the target
-	target := big.NewInt(int64(coefficient))
-
-	// Shift the coefficient by (exponent - 3) to adjust the target
-	if exponent > 3 {
-		// Left shift by (exponent - 3) bytes, equivalent to multiplying by 256^(exponent-3)
-		target.Lsh(target, uint(8*(exponent-3)))
-	}
-
-	// Return the target as a big integer
-	return target
 }

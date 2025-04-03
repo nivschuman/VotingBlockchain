@@ -5,16 +5,16 @@ import (
 	"encoding/binary"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
+	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 )
 
-const TRANSACTION_TYPE = uint16(1)
-
 type Transaction struct {
-	Id          []byte //hash of (Version, CandidateId, WalletId), 32 bytes
-	Version     int32  //version of transaction, 4 bytes
-	CandidateId uint32 //id of candidate to vote for, 4 bytes
-	WalletId    []byte //wallet id, 32 bytes (hash)
-	Signature   []byte //signature of Id, in ASN1 format, 70-72 bytes, signed by voter
+	Id                  []byte //hash of (Version, CandidateId, VoterPublicKey), 32 bytes
+	Version             int32  //version of transaction, 4 bytes
+	CandidateId         uint32 //id of candidate to vote for, 4 bytes
+	VoterPublicKey      []byte //public key of voter marshal compressed, 33 bytes
+	GovernmentSignature []byte //signature of hash of voter public key, in ASN1 format, 70-72 bytes, signed by government
+	Signature           []byte //signature of Id, in ASN1 format, 70-72 bytes, signed by voter
 }
 
 func (transaction *Transaction) GetHash() []byte {
@@ -22,7 +22,7 @@ func (transaction *Transaction) GetHash() []byte {
 
 	binary.Write(buf, binary.BigEndian, transaction.Version)
 	binary.Write(buf, binary.BigEndian, transaction.CandidateId)
-	buf.Write(transaction.WalletId)
+	buf.Write(transaction.VoterPublicKey)
 
 	return hash.HashBytes(buf.Bytes())
 }
@@ -36,15 +36,13 @@ func (transaction *Transaction) AsBytes() []byte {
 
 	binary.Write(buf, binary.BigEndian, transaction.Version)
 	binary.Write(buf, binary.BigEndian, transaction.CandidateId)
-	buf.Write(transaction.WalletId)
+	buf.Write(transaction.VoterPublicKey)
+	binary.Write(buf, binary.BigEndian, uint32(len(transaction.GovernmentSignature)))
+	buf.Write(transaction.GovernmentSignature)
 	binary.Write(buf, binary.BigEndian, uint32(len(transaction.Signature)))
 	buf.Write(transaction.Signature)
 
 	return buf.Bytes()
-}
-
-func (transaction *Transaction) Type() uint16 {
-	return TRANSACTION_TYPE
 }
 
 func TransactionFromBytes(b []byte) (*Transaction, error) {
@@ -60,8 +58,18 @@ func TransactionFromBytes(b []byte) (*Transaction, error) {
 		return nil, err
 	}
 
-	transaction.WalletId = make([]byte, 32)
-	if _, err := buf.Read(transaction.WalletId); err != nil {
+	transaction.VoterPublicKey = make([]byte, 33)
+	if _, err := buf.Read(transaction.VoterPublicKey); err != nil {
+		return nil, err
+	}
+
+	var governmentSignatureLength uint32
+	if err := binary.Read(buf, binary.BigEndian, &governmentSignatureLength); err != nil {
+		return nil, err
+	}
+
+	transaction.GovernmentSignature = make([]byte, governmentSignatureLength)
+	if _, err := buf.Read(transaction.Signature); err != nil {
 		return nil, err
 	}
 
@@ -78,4 +86,14 @@ func TransactionFromBytes(b []byte) (*Transaction, error) {
 	transaction.SetId()
 
 	return transaction, nil
+}
+
+func (transaction *Transaction) IsValidSignature() (bool, error) {
+	publicKey, err := ppk.GetPublicKeyFromBytes(transaction.VoterPublicKey)
+
+	if err != nil {
+		return false, err
+	}
+
+	return publicKey.VerifySignature(transaction.Signature, transaction.GetHash()), nil
 }

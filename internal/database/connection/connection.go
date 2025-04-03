@@ -12,11 +12,11 @@ import (
 	models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 )
 
-var modelsToMigrate = []interface{}{
+var modelsToMigrate = []any{
 	&models.TransactionDB{},
 	&models.BlockDB{},
-	&models.WalletDB{},
 	&models.BlockHeaderDB{},
+	&models.TransactionBlockDB{},
 }
 
 var GlobalDB *gorm.DB = nil
@@ -40,6 +40,15 @@ func GetAppDatabaseConnection() (*gorm.DB, error) {
 	}
 
 	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
+
+	dir := "databases"
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			return nil, fmt.Errorf("failed to create databases directory: %w", err)
+		}
+		log.Printf("Created directory '%s'", dir)
+	}
+
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 
 	if err != nil {
@@ -72,6 +81,12 @@ func DeleteDatabase() error {
 	}
 
 	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
+
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		log.Printf("Database file '%s' does not exist, nothing to delete", dbFile)
+		return nil
+	}
+
 	err := os.Remove(dbFile)
 
 	if err != nil {

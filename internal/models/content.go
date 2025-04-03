@@ -11,6 +11,4 @@ type Byteable interface {
 type Content interface {
 	hash.Hashable
 	Byteable
-
-	Type() uint16
 }
