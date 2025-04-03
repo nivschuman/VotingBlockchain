@@ -72,6 +72,12 @@ func DeleteDatabase() error {
 	}
 
 	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
+
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		log.Printf("Database file '%s' does not exist, nothing to delete", dbFile)
+		return nil
+	}
+
 	err := os.Remove(dbFile)
 
 	if err != nil {
