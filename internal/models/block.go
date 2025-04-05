@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"encoding/binary"
+	"math/big"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
@@ -101,6 +102,10 @@ func (block *Block) AsBytes() []byte {
 	}
 
 	return buf.Bytes()
+}
+
+func (block *Block) GetBlockWork() *big.Int {
+	return difficulty.CalculateWork(block.Header.NBits)
 }
 
 func BlockFromBytes(b []byte) (*Block, error) {
