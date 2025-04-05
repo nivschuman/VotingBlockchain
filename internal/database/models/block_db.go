@@ -1,6 +1,7 @@
 package db_models
 
 import (
+	types "github.com/nivschuman/VotingBlockchain/internal/database/types"
 	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 )
 
@@ -18,8 +19,9 @@ type BlockHeaderDB struct {
 }
 
 type BlockDB struct {
-	Height        uint64 `gorm:"column:height:not null"`
-	InActiveChain bool   `gorm:"column:in_active_chain:not null"`
+	Height         uint64       `gorm:"column:height:not null"`
+	InActiveChain  bool         `gorm:"column:in_active_chain:not null"`
+	CumulativeWork types.BigInt `gorm:"column:cumulative_work:not null"`
 
 	BlockHeaderId []byte        `gorm:"primaryKey;column:block_header_id"`
 	BlockHeader   BlockHeaderDB `gorm:"foreignKey:BlockHeaderId;references:Id"`

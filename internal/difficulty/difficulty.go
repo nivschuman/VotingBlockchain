@@ -26,3 +26,14 @@ func IsHashBelowTarget(hash []byte, target *big.Int) bool {
 	blockBigInt := new(big.Int).SetBytes(hash)
 	return blockBigInt.Cmp(blockBigInt) <= 0
 }
+
+func CalculateWork(nBits uint32) *big.Int {
+	target := GetTargetFromNBits(nBits)
+
+	one := big.NewInt(1)
+	denominator := new(big.Int).Add(target, one)
+
+	numerator := new(big.Int).Lsh(one, 256) // 2^256
+
+	return new(big.Int).Div(numerator, denominator)
+}

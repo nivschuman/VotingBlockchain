@@ -1,6 +1,7 @@
 package repositories_test
 
 import (
+	"math/big"
 	"testing"
 
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
@@ -20,5 +21,15 @@ func TestGenesisBlock(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("failed to insert genesis block: %v", err)
+	}
+
+	cumulativeWork, err := repositories.GlobalBlockRepository.GetBlockCumulativeWork(genesisBlock.Header.Id)
+
+	if err != nil {
+		t.Fatalf("failed to get genesis block cumulative work: %v", err)
+	}
+
+	if cumulativeWork.Cmp(big.NewInt(4295032833)) != 0 {
+		t.Fatalf("genesis block cumulative work is wrong: %s", cumulativeWork.String())
 	}
 }

@@ -1,9 +1,12 @@
 package repositories
 
 import (
+	"fmt"
+	"math/big"
 	"time"
 
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
+	types "github.com/nivschuman/VotingBlockchain/internal/database/types"
 	mapping "github.com/nivschuman/VotingBlockchain/internal/mapping"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 	"gorm.io/gorm"
@@ -29,29 +32,37 @@ func InitializeGlobalBlockRepository(db *gorm.DB) error {
 	return nil
 }
 
+func (blockRepository *BlockRepository) GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error) {
+	var blockDB db_models.BlockDB
+	err := blockRepository.db.Where("block_header_id = ?", blockHeaderId).First(&blockDB).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return (*big.Int)(&blockDB.CumulativeWork), nil
+}
+
 func (blockRepository *BlockRepository) InsertBlock(block *models.Block) error {
 	return blockRepository.db.Transaction(func(tx *gorm.DB) error {
-		var prevBlockDB db_models.BlockDB
-		prevBlockExists := false
-
 		blockDB := mapping.BlockToBlockDB(block)
+		blockWork := types.NewBigInt(block.GetBlockWork())
 
-		//genesis block
 		if block.Header.PreviousBlockId == nil {
 			blockDB.Height = 0
 			blockDB.InActiveChain = true
+			blockDB.CumulativeWork = blockWork
 		} else {
-			err := tx.Where("id = ?", block.Header.PreviousBlockId).First(&prevBlockDB).Error
-			prevBlockExists = err == nil
+			var prevBlockDB db_models.BlockDB
+			err := tx.Where("block_header_id = ?", block.Header.PreviousBlockId).First(&prevBlockDB).Error
+			prevBlockExists := err == nil
 
-			//prev block exists, append to it
 			if prevBlockExists {
 				blockDB.Height = prevBlockDB.Height + 1
 				blockDB.InActiveChain = prevBlockDB.InActiveChain
-				// orphan block
+				blockDB.CumulativeWork = blockWork.Add(prevBlockDB.CumulativeWork)
 			} else {
-				blockDB.Height = 0
-				blockDB.InActiveChain = false
+				return fmt.Errorf("cannot insert orphan block, previous block %x not found", block.Header.PreviousBlockId)
 			}
 		}
 
