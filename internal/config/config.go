@@ -9,8 +9,9 @@ import (
 )
 
 type Config struct {
-	NetworkConfig `yaml:"network"`
-	NodeConfig    `yaml:"node"`
+	NetworkConfig    NetworkConfig    `yaml:"network"`
+	NodeConfig       NodeConfig       `yaml:"node"`
+	GovernmentConfig GovernmentConfig `yaml:"government"`
 }
 
 var GlobalConfig *Config = nil

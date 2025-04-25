@@ -8,14 +8,14 @@ import (
 	"time"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
+	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	connectors "github.com/nivschuman/VotingBlockchain/internal/networking/connectors"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	peer "github.com/nivschuman/VotingBlockchain/internal/networking/peer"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
+	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
 )
-
-const PING_INTERVAL = 2 * time.Minute
-const PONG_TIMEOUT = 20 * time.Minute
 
 type PeersMap map[string]*peer.Peer
 
@@ -46,9 +46,8 @@ func NewNetwork() *Network {
 func (network *Network) StartNetwork() {
 	network.Listener.Listen(&network.wg)
 
-	network.wg.Add(3)
+	network.wg.Add(2)
 	go network.DialPeers()
-	go network.SendPings()
 	go network.RemovePeers()
 }
 
@@ -107,7 +106,8 @@ func (network *Network) RemovePeers() {
 					continue
 				}
 				sinceLastPong := time.Since(peer.PingPongDetails.PongTime)
-				if sinceLastPong > PONG_TIMEOUT {
+				pongTimeout := time.Duration(config.GlobalConfig.NetworkConfig.PongTimeout) * time.Second
+				if sinceLastPong > pongTimeout {
 					toRemove = append(toRemove, peer)
 					continue
 				}
@@ -124,42 +124,9 @@ func (network *Network) RemovePeers() {
 }
 
 func (network *Network) RemovePeer(peer *peer.Peer) {
-	log.Printf("Network: removing peer %s", peer.Conn.RemoteAddr().String())
+	log.Printf("Network: removing peer %s", peer.String())
 	peer.Disconnect()
 	delete(network.Peers, peer.Conn.RemoteAddr().String())
-}
-
-func (network *Network) SendPings() {
-	defer network.wg.Done()
-	ticker := time.NewTicker(PING_INTERVAL)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-network.stopChannel:
-			log.Println("Network: stopping send pings")
-			return
-		case <-ticker.C:
-			network.PeersMutex.RLock()
-			for _, peer := range network.Peers {
-				if peer.PingPongDetails.Nonce == 0 {
-					n, err := nonce.Generator.GenerateNonce()
-					if err != nil {
-						continue
-					}
-					peer.PingPongDetails.PingTime = time.Now()
-					peer.PingPongDetails.Nonce = n
-
-					select {
-					case <-peer.StopChannel:
-						continue
-					case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
-					}
-				}
-			}
-			network.PeersMutex.RUnlock()
-		}
-	}
 }
 
 func (network *Network) handleConnection(conn net.Conn, initializer bool) {
@@ -176,7 +143,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	err := p.WaitForHandshake(time.Second * 10)
 
 	if err != nil {
-		log.Printf("Failed to complete handshake with peer %s: %v", p.Conn.RemoteAddr().String(), p.HandshakeDetails.Error)
+		log.Printf("Failed to complete handshake with peer %s: %v", p.String(), p.HandshakeDetails.Error)
 		p.Disconnect()
 		return
 	}
@@ -208,6 +175,123 @@ func (network *Network) processMessage(fromPeer *peer.Peer, message *models.Mess
 			fromPeer.PingPongDetails.Latency = latency
 			fromPeer.PingPongDetails.PongTime = time.Now()
 			fromPeer.PingPongDetails.Nonce = 0
+		}
+	}
+
+	//inv
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandInv[:]) {
+		inv, err := models.InvFromBytes(message.Payload)
+
+		if err != nil {
+			log.Printf("Failed to parse inv from %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		getData := models.NewGetData()
+
+		blockHashes := structures.NewBytesSet()
+		txHashes := structures.NewBytesSet()
+
+		for _, invItem := range inv.Items {
+			if invItem.Type == models.MSG_BLOCK {
+				blockHashes.Add(invItem.Hash)
+			} else if invItem.Type == models.MSG_TX {
+				txHashes.Add(invItem.Hash)
+			}
+		}
+
+		missingTransactions, err := repos.GlobalTransactionRepository.GetMissingTransactionIds(txHashes)
+
+		if err != nil {
+			log.Printf("Failed to get missing transactions : %v", err)
+			return
+		}
+
+		for _, id := range missingTransactions.ToBytesSlice() {
+			getData.AddItem(models.MSG_TX, id)
+		}
+
+		//TBD handle blocks
+
+		getDataMessage, err := models.NewGetDataMessage(getData)
+
+		if err != nil {
+			log.Printf("Failed to make get data message for %s : %v", fromPeer.String(), err)
+			return
+		}
+
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *getDataMessage:
+		}
+	}
+
+	//tx
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandTx[:]) {
+		transaction, err := data_models.TransactionFromBytes(message.Payload)
+
+		if err != nil {
+			log.Printf("Failed to parse transaction from %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		valid, err := repos.GlobalTransactionRepository.TransactionIsValid(transaction)
+
+		if err != nil {
+			log.Printf("Failed validating transaction from %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		if !valid {
+			log.Printf("Received invalid transaction from %s", fromPeer.String())
+			return
+		}
+
+		err = repos.GlobalTransactionRepository.InsertIfNotExists(transaction)
+
+		if err != nil {
+			log.Printf("Failed to insert transaction from %s: %v", fromPeer.String(), err)
+		}
+
+		network.PeersMutex.RLock()
+		for _, peer := range network.Peers {
+			if peer != fromPeer {
+				peer.InventoryToSendMutex.Lock()
+				peer.InventoryToSend.AddItem(models.MSG_TX, transaction.Id)
+				peer.InventoryToSendMutex.Unlock()
+			}
+		}
+		network.PeersMutex.RUnlock()
+	}
+
+	//mempool
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandMemPool[:]) {
+		transactions, err := repos.GlobalTransactionRepository.GetMempool(10)
+
+		if err != nil {
+			log.Printf("Failed to get mempool for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		inv := models.NewInv()
+
+		for _, tx := range transactions {
+			inv.AddItem(models.MSG_TX, tx.Id)
+		}
+
+		invBytes, err := inv.AsBytes()
+
+		if err != nil {
+			log.Printf("Failed to get mempool inv bytes for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		mempoolMessage := models.NewMessage(models.CommandInv, invBytes)
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *mempoolMessage:
 		}
 	}
 }

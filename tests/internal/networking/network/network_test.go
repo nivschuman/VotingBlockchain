@@ -7,11 +7,12 @@ import (
 	"time"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
+	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
-	_ "github.com/nivschuman/VotingBlockchain/tests/init"
+	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
 func getTestVersionMessage() *models.Message {
@@ -32,8 +33,8 @@ func TestSendPingToNetwork(t *testing.T) {
 	network := network.NewNetwork()
 	network.StartNetwork()
 
-	ip := config.GlobalConfig.Ip
-	port := config.GlobalConfig.Port
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
 	address := net.JoinHostPort(ip, fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
@@ -62,6 +63,74 @@ func TestSendPingToNetwork(t *testing.T) {
 
 	if nonce.NonceFromBytes(pongMessage.Payload) != n {
 		t.Fatalf("Received pong with wrong nonce")
+	}
+
+	network.StopNetwork()
+	conn.Close()
+}
+
+func TestSendMemPoolToNetwork(t *testing.T) {
+	inits.InitializeTestDatabase()
+	govKeyPair, err := inits.GenerateTestGovernmentKeyPair()
+
+	if err != nil {
+		t.Fatalf("Failed to generate government key pair: %v", err)
+	}
+
+	tx1, _, err := inits.CreateTestTransaction(govKeyPair)
+	if err != nil {
+		t.Fatalf("failed to create test tx1: %v", err)
+	}
+
+	tx2, _, err := inits.CreateTestTransaction(govKeyPair)
+	if err != nil {
+		t.Fatalf("failed to create test tx2: %v", err)
+	}
+
+	err = repositories.GlobalTransactionRepository.InsertIfNotExists(tx1)
+	if err != nil {
+		t.Fatalf("failed to create insert tx1: %v", err)
+	}
+
+	err = repositories.GlobalTransactionRepository.InsertIfNotExists(tx2)
+	if err != nil {
+		t.Fatalf("failed to create insert tx2: %v", err)
+	}
+
+	network := network.NewNetwork()
+	network.StartNetwork()
+
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
+
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("Failed to dial network: %v", err)
+	}
+
+	doHandshake(conn)
+
+	reader := connection.NewReader()
+	sender := connection.NewSender()
+
+	memPoolMessage := models.NewMemPoolMessage()
+	sender.SendMessage(conn, memPoolMessage)
+
+	invMessage, err := reader.ReadMessage(conn)
+
+	if err != nil {
+		t.Fatalf("Failed to read inv message: %v", err)
+	}
+
+	inv, err := models.InvFromBytes(invMessage.Payload)
+
+	if err != nil {
+		t.Fatalf("Failed to read parse inv message: %v", err)
+	}
+
+	if !inv.Contains(models.MSG_TX, tx1.Id) || !inv.Contains(models.MSG_TX, tx2.Id) {
+		t.Fatalf("Inv returned doesn't contain transactions")
 	}
 
 	network.StopNetwork()

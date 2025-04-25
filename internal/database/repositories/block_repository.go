@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 type BlockRepository struct {
 	db                    *gorm.DB
+	ActiveChainTipId      []byte
 	TransactionRepository *TransactionRepository
 }
 
@@ -43,8 +45,16 @@ func (blockRepository *BlockRepository) GetBlockCumulativeWork(blockHeaderId []b
 	return (*big.Int)(&blockDB.CumulativeWork), nil
 }
 
-func (blockRepository *BlockRepository) InsertBlock(block *models.Block) error {
+func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) error {
 	return blockRepository.db.Transaction(func(tx *gorm.DB) error {
+		var existing db_models.BlockDB
+		err := tx.Where("block_header_id = ?", block.Header.Id).First(&existing).Error
+		exists := err == nil
+
+		if exists {
+			return nil
+		}
+
 		blockDB := mapping.BlockToBlockDB(block)
 		blockWork := types.NewBigInt(block.GetBlockWork())
 
@@ -59,7 +69,7 @@ func (blockRepository *BlockRepository) InsertBlock(block *models.Block) error {
 
 			if prevBlockExists {
 				blockDB.Height = prevBlockDB.Height + 1
-				blockDB.InActiveChain = prevBlockDB.InActiveChain
+				blockDB.InActiveChain = bytes.Equal(block.Header.PreviousBlockId, blockRepository.ActiveChainTipId)
 				blockDB.CumulativeWork = blockWork.Add(prevBlockDB.CumulativeWork)
 			} else {
 				return fmt.Errorf("cannot insert orphan block, previous block %x not found", block.Header.PreviousBlockId)
@@ -76,7 +86,7 @@ func (blockRepository *BlockRepository) InsertBlock(block *models.Block) error {
 		}
 
 		for i, transaction := range block.Transactions {
-			if err := blockRepository.TransactionRepository.InsertIfNotExists(transaction, tx); err != nil {
+			if err := blockRepository.TransactionRepository.insertIfNotExistsTransactional(transaction, tx); err != nil {
 				return err
 			}
 
@@ -87,6 +97,22 @@ func (blockRepository *BlockRepository) InsertBlock(block *models.Block) error {
 			}
 
 			if err := tx.Create(&transactionBlock).Error; err != nil {
+				return err
+			}
+		}
+
+		if blockDB.InActiveChain {
+			blockRepository.ActiveChainTipId = blockDB.BlockHeaderId
+			return nil
+		}
+
+		var activeTip db_models.BlockDB
+		if err := tx.Where("block_header_id = ?", blockRepository.ActiveChainTipId).First(&activeTip).Error; err != nil {
+			return fmt.Errorf("active chain tip not found: %v", err)
+		}
+
+		if blockDB.CumulativeWork.Cmp(activeTip.CumulativeWork) > 0 {
+			if err := blockRepository.reorganizeChain(tx, block.Header.Id); err != nil {
 				return err
 			}
 		}
@@ -112,4 +138,84 @@ func (*BlockRepository) GenesisBlock() *models.Block {
 		Header:       *genesisBlockHeader,
 		Transactions: make([]*models.Transaction, 0),
 	}
+}
+
+func (blockRepository *BlockRepository) SetActiveChainTipId() error {
+	var tipId []byte
+
+	subQuery := blockRepository.db.
+		Table("blocks AS b2").
+		Select("b2.block_header_id").
+		Joins("JOIN block_headers AS bh2 ON b2.block_header_id = bh2.id").
+		Where("b2.in_active_chain = ?", true).
+		Where("bh2.previous_block_header_id = b.block_header_id")
+
+	err := blockRepository.db.
+		Table("blocks AS b").
+		Select("b.block_header_id").
+		Where("b.in_active_chain = ?", true).
+		Where("NOT EXISTS (?)", subQuery).
+		Limit(1).
+		Row().
+		Scan(&tipId)
+
+	if err != nil {
+		return err
+	}
+
+	if len(tipId) == 0 {
+		return fmt.Errorf("no chain tip found")
+	}
+
+	blockRepository.ActiveChainTipId = tipId
+	return nil
+}
+
+func (blockRepository *BlockRepository) reorganizeChain(tx *gorm.DB, newTipId []byte) error {
+	var forkPoint []byte
+	oldTipId := blockRepository.ActiveChainTipId
+
+	curId := newTipId
+
+	for {
+		var block db_models.BlockDB
+		if err := tx.Preload("BlockHeader").Where("block_header_id = ?", curId).First(&block).Error; err != nil {
+			return err
+		}
+
+		if block.InActiveChain {
+			forkPoint = block.BlockHeaderId
+			break
+		}
+
+		if err := tx.Model(&db_models.BlockDB{}).
+			Where("block_header_id = ?", block.BlockHeaderId).
+			Update("in_active_chain", true).Error; err != nil {
+			return err
+		}
+
+		curId = *block.BlockHeader.PreviousBlockHeaderId
+	}
+
+	for {
+		if bytes.Equal(oldTipId, forkPoint) {
+			break
+		}
+
+		if err := tx.Model(&db_models.BlockDB{}).
+			Where("block_header_id = ?", oldTipId).
+			Update("in_active_chain", false).Error; err != nil {
+			return err
+		}
+
+		var oldBlock db_models.BlockDB
+		if err := tx.Preload("BlockHeader").Where("block_header_id = ?", oldTipId).First(&oldBlock).Error; err != nil {
+			return err
+		}
+
+		oldTipId = *oldBlock.BlockHeader.PreviousBlockHeaderId
+	}
+
+	blockRepository.ActiveChainTipId = newTipId
+	return nil
 }

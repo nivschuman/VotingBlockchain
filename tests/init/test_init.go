@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
+	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 )
@@ -35,6 +36,19 @@ func InitializeTestDatabase() {
 	if err != nil {
 		log.Fatalf("Failed to initialize repositories: %v", err)
 	}
+
+	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	err = repositories.GlobalBlockRepository.InsertIfNotExists(genesisBlock)
+
+	if err != nil {
+		log.Fatalf("Failed to insert genesis block: %v", err)
+	}
+
+	err = repositories.GlobalBlockRepository.SetActiveChainTipId()
+
+	if err != nil {
+		log.Fatalf("Failed to set active chain tip: %v", err)
+	}
 }
 
 func InitializeRepositories() error {
@@ -45,6 +59,17 @@ func InitializeRepositories() error {
 	}
 
 	return repositories.InitializeGlobalTransactionRepository(db.GlobalDB)
+}
+
+func GenerateTestGovernmentKeyPair() (*ppk.KeyPair, error) {
+	keyPair, err := ppk.GenerateKeyPair()
+
+	if err != nil {
+		return nil, err
+	}
+
+	config.GlobalConfig.GovernmentConfig.PublicKey = keyPair.PublicKey.AsBytes()
+	return keyPair, nil
 }
 
 func init() {

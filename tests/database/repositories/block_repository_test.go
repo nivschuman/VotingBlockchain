@@ -17,12 +17,6 @@ func TestGenesisBlock(t *testing.T) {
 		t.Fatalf("hash isn't below target")
 	}
 
-	err := repositories.GlobalBlockRepository.InsertBlock(genesisBlock)
-
-	if err != nil {
-		t.Fatalf("failed to insert genesis block: %v", err)
-	}
-
 	cumulativeWork, err := repositories.GlobalBlockRepository.GetBlockCumulativeWork(genesisBlock.Header.Id)
 
 	if err != nil {

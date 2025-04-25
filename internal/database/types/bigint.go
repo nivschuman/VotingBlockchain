@@ -32,6 +32,10 @@ func (bi BigInt) Add(other BigInt) BigInt {
 	return BigInt(*result)
 }
 
+func (bi BigInt) Cmp(other BigInt) int {
+	return (*big.Int)(&bi).Cmp((*big.Int)(&other))
+}
+
 func NewBigInt(value *big.Int) BigInt {
 	return BigInt(*value)
 }
