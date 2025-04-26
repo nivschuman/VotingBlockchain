@@ -3,6 +3,7 @@ package models_test
 import (
 	"bytes"
 	"encoding/binary"
+	"log"
 	"testing"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
@@ -118,8 +119,10 @@ func TestTransactionFromBytes(t *testing.T) {
 	}
 }
 
-func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
+func TestSignatureIsValid_WhenSignatureIsValid(t *testing.T) {
 	transaction, keyPair, err := getTestTransaction()
+
+	log.Printf("%x", keyPair.PublicKey.AsBytes())
 
 	if err != nil {
 		t.Fatalf("error in getTestTransaction: %v", err)
@@ -131,7 +134,7 @@ func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
 		t.Fatalf("error with create signature: %v", err)
 	}
 
-	valid, err := transaction.IsValidSignature()
+	valid, err := transaction.SignatureIsValid()
 
 	if err != nil {
 		t.Fatalf("error with is valid signature: %v", err)
@@ -142,7 +145,7 @@ func TestIsValidSignature_WhenSignatureIsValid(t *testing.T) {
 	}
 }
 
-func TestIsValidSignature_WhenSignatureIsInvalid(t *testing.T) {
+func TestSignatureIsValid_WhenSignatureIsInvalid(t *testing.T) {
 	transaction, keyPair, err := getTestTransaction()
 
 	if err != nil {
@@ -156,7 +159,7 @@ func TestIsValidSignature_WhenSignatureIsInvalid(t *testing.T) {
 		t.Fatalf("error with create signature: %v", err)
 	}
 
-	valid, err := transaction.IsValidSignature()
+	valid, err := transaction.SignatureIsValid()
 
 	if err != nil {
 		t.Fatalf("error with is valid signature: %v", err)

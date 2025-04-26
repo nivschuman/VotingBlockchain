@@ -2,13 +2,14 @@ package networking_peer_test
 
 import (
 	"net"
+	"os"
 	"testing"
 	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	peer "github.com/nivschuman/VotingBlockchain/internal/networking/peer"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
-	_ "github.com/nivschuman/VotingBlockchain/tests/init"
+	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 
@@ -24,6 +25,19 @@ func getTestVersionMessage() *models.Message {
 	}
 
 	return models.NewVersionMessage(&version)
+}
+
+func TestMain(m *testing.M) {
+	// === BEFORE ALL TESTS ===
+	inits.SetupTests()
+
+	// Run the tests
+	code := m.Run()
+
+	// === AFTER ALL TESTS ===
+
+	// Exit with the right code
+	os.Exit(code)
 }
 
 func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {

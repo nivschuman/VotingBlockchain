@@ -18,6 +18,17 @@ func TransactionToTransactionDB(transaction *models.Transaction) *db_models.Tran
 	}
 }
 
+func TransactionDBToTransaction(transactionDB *db_models.TransactionDB) *models.Transaction {
+	return &models.Transaction{
+		Id:                  slices.Clone(transactionDB.Id),
+		Version:             transactionDB.Version,
+		CandidateId:         transactionDB.CandidateId,
+		VoterPublicKey:      slices.Clone(transactionDB.VoterPublicKey),
+		GovernmentSignature: slices.Clone(transactionDB.GovernmentSignature),
+		Signature:           slices.Clone(transactionDB.Signature),
+	}
+}
+
 func BlockHeaderToBlockHeaderDB(blockHeader *models.BlockHeader) *db_models.BlockHeaderDB {
 	var prevBlockHeaderId *[]byte
 

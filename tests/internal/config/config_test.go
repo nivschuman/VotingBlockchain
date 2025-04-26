@@ -1,11 +1,25 @@
 package config_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/nivschuman/VotingBlockchain/internal/config"
-	_ "github.com/nivschuman/VotingBlockchain/tests/init"
+	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 )
+
+func TestMain(m *testing.M) {
+	// === BEFORE ALL TESTS ===
+	inits.SetupTests()
+
+	// Run the tests
+	code := m.Run()
+
+	// === AFTER ALL TESTS ===
+
+	// Exit with the right code
+	os.Exit(code)
+}
 
 func TestGlobalConfig(t *testing.T) {
 	conf := config.GlobalConfig

@@ -8,10 +8,15 @@ import (
 	"sync"
 	"time"
 
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	checksum "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
+	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
 )
+
+const PING_INTERVAL = 2 * time.Minute
+const SEND_DATA_INTERVAL = 100 * time.Second
 
 type Peer struct {
 	Conn net.Conn
@@ -26,6 +31,9 @@ type Peer struct {
 
 	Remove       bool
 	Disconnected bool
+
+	InventoryToSendMutex sync.Mutex
+	InventoryToSend      *models.Inv
 
 	reader *connection.Reader
 	sender *connection.Sender
@@ -67,12 +75,17 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 		Remove:           false,
 		SendChannel:      sendChannel,
 		StopChannel:      stopChannel,
+		InventoryToSend:  models.NewInv(),
 		reader:           reader,
 		sender:           sender,
 		readChannel:      readChannel,
 		sendChannel:      sendChannel,
 		stopChannel:      stopChannel,
 	}
+}
+
+func (peer *Peer) String() string {
+	return peer.Conn.RemoteAddr().String()
 }
 
 func (peer *Peer) StartPeer() {
@@ -83,6 +96,7 @@ func (peer *Peer) StartPeer() {
 func (peer *Peer) StartProcessing(messageHandler func(peer *Peer, message *models.Message)) {
 	peer.MessageHandler = messageHandler
 	go peer.ProcessMessages()
+	go peer.SendData()
 }
 
 func (peer *Peer) ReadMessages() {
@@ -137,6 +151,27 @@ func (peer *Peer) SendMessages() {
 	}
 }
 
+func (peer *Peer) SendData() {
+	sendDataInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerData := time.NewTicker(sendDataInterval)
+	defer tickerData.Stop()
+
+	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerPing := time.NewTicker(pingInterval)
+	defer tickerPing.Stop()
+
+	for {
+		select {
+		case <-peer.StopChannel:
+			return
+		case <-tickerPing.C:
+			peer.MaybeSendPing()
+		case <-tickerData.C:
+			peer.SendInventory()
+		}
+	}
+}
+
 func (peer *Peer) ProcessMessages() {
 	for {
 		select {
@@ -161,4 +196,49 @@ func (peer *Peer) Disconnect() {
 
 		peer.Disconnected = true
 	})
+}
+
+func (peer *Peer) MaybeSendPing() {
+	if peer.PingPongDetails.Nonce != 0 {
+		return
+	}
+
+	n, err := nonce.Generator.GenerateNonce()
+
+	if err != nil {
+		return
+	}
+
+	peer.PingPongDetails.PingTime = time.Now()
+	peer.PingPongDetails.Nonce = n
+
+	select {
+	case <-peer.StopChannel:
+		return
+	case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
+	}
+}
+
+func (peer *Peer) SendInventory() {
+	peer.InventoryToSendMutex.Lock()
+	defer peer.InventoryToSendMutex.Unlock()
+
+	if peer.InventoryToSend.Count == 0 {
+		return
+	}
+
+	invBytes, err := peer.InventoryToSend.AsBytes()
+
+	if err != nil {
+		return
+	}
+
+	message := *models.NewMessage(models.CommandInv, invBytes)
+
+	select {
+	case <-peer.StopChannel:
+		return
+	case peer.SendChannel <- message:
+		peer.InventoryToSend.Clear()
+	}
 }
