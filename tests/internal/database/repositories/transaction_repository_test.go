@@ -10,7 +10,8 @@ import (
 )
 
 func TestGetMempool(t *testing.T) {
-	govKeyPair, _, _, err := inits.InitializeTestDatabaseWithData(4, 2)
+	inits.ResetTestDatabase()
+	govKeyPair, _, _, err := inits.CreateTestData(4, 2)
 
 	if err != nil {
 		t.Fatalf("failed to setup test data: %v", err)
@@ -58,7 +59,8 @@ func TestGetMempool(t *testing.T) {
 }
 
 func TestTransactionIsValid_WhenTransactionIsInvalid(t *testing.T) {
-	_, blocks, keyPairs, err := inits.InitializeTestDatabaseWithData(4, 2)
+	inits.ResetTestDatabase()
+	_, blocks, keyPairs, err := inits.CreateTestData(4, 2)
 	if err != nil {
 		t.Fatalf("failed to setup test data: %v", err)
 	}
@@ -94,7 +96,8 @@ func TestTransactionIsValid_WhenTransactionIsInvalid(t *testing.T) {
 }
 
 func TestTransactionIsValid_WhenTransactionIsValid(t *testing.T) {
-	govKeyPair, _, _, err := inits.InitializeTestDatabaseWithData(4, 2)
+	inits.ResetTestDatabase()
+	govKeyPair, _, _, err := inits.CreateTestData(4, 2)
 
 	if err != nil {
 		t.Fatalf("failed to setup test data: %v", err)
@@ -118,7 +121,8 @@ func TestTransactionIsValid_WhenTransactionIsValid(t *testing.T) {
 }
 
 func TestGetMissingTransactionIds(t *testing.T) {
-	govKeyPair, blocks, _, err := inits.InitializeTestDatabaseWithData(4, 2)
+	inits.ResetTestDatabase()
+	govKeyPair, blocks, _, err := inits.CreateTestData(4, 2)
 	if err != nil {
 		t.Fatalf("failed to setup test data: %v", err)
 	}

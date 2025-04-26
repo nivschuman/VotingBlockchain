@@ -7,72 +7,11 @@ import (
 	"path/filepath"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
-	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 )
 
-func InitializeTestDatabase() {
-	err := db.DeleteDatabase()
-
-	if err != nil {
-		log.Fatalf("Failed to delete db: %v", err)
-	}
-
-	err = db.InitializeGlobalDB()
-
-	if err != nil {
-		log.Fatalf("Failed to initialize db: %v", err)
-	}
-
-	err = db.ResetDatabase(db.GlobalDB)
-
-	if err != nil {
-		log.Fatalf("Failed to initialize db: %v", err)
-	}
-
-	err = InitializeRepositories()
-
-	if err != nil {
-		log.Fatalf("Failed to initialize repositories: %v", err)
-	}
-
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
-	err = repositories.GlobalBlockRepository.InsertIfNotExists(genesisBlock)
-
-	if err != nil {
-		log.Fatalf("Failed to insert genesis block: %v", err)
-	}
-
-	err = repositories.GlobalBlockRepository.SetActiveChainTipId()
-
-	if err != nil {
-		log.Fatalf("Failed to set active chain tip: %v", err)
-	}
-}
-
-func InitializeRepositories() error {
-	err := repositories.InitializeGlobalBlockRepository(db.GlobalDB)
-
-	if err != nil {
-		return err
-	}
-
-	return repositories.InitializeGlobalTransactionRepository(db.GlobalDB)
-}
-
-func GenerateTestGovernmentKeyPair() (*ppk.KeyPair, error) {
-	keyPair, err := ppk.GenerateKeyPair()
-
-	if err != nil {
-		return nil, err
-	}
-
-	config.GlobalConfig.GovernmentConfig.PublicKey = keyPair.PublicKey.AsBytes()
-	return keyPair, nil
-}
-
-func init() {
+func SetupTests() {
 	err := os.Setenv("APP_ENV", "test")
 
 	if err != nil {
@@ -92,6 +31,61 @@ func init() {
 	if err != nil {
 		log.Fatalf("Failed to initialize global config: %v", err)
 	}
+}
+
+func SetupTestsDatabase() {
+	err := db.InitializeGlobalDB()
+
+	if err != nil {
+		log.Fatalf("Failed to initialize db: %v", err)
+	}
+
+	err = initializeRepositories()
+
+	if err != nil {
+		log.Fatalf("Failed to initialize repositories: %v", err)
+	}
+
+	ResetTestDatabase()
+}
+
+func ResetTestDatabase() {
+	err := db.ResetDatabase(db.GlobalDB)
+
+	if err != nil {
+		log.Fatalf("Failed to reset db: %v", err)
+	}
+
+	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	err = repositories.GlobalBlockRepository.InsertIfNotExists(genesisBlock)
+
+	if err != nil {
+		log.Fatalf("Failed to insert genesis block: %v", err)
+	}
+
+	err = repositories.GlobalBlockRepository.SetActiveChainTipId()
+
+	if err != nil {
+		log.Fatalf("Failed to set active chain tip: %v", err)
+	}
+}
+
+func CloseTestDatabase() {
+	err := db.CloseDatabaseConnection(db.GlobalDB)
+
+	if err != nil {
+		log.Fatalf("Failed to close test database: %v", err)
+	}
+}
+
+func initializeRepositories() error {
+	err := repositories.InitializeGlobalBlockRepository(db.GlobalDB)
+
+	if err != nil {
+		return err
+	}
+
+	return repositories.InitializeGlobalTransactionRepository(db.GlobalDB)
 }
 
 func getProjectRoot() (string, error) {

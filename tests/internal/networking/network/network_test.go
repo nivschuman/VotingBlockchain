@@ -3,6 +3,7 @@ package network_test
 import (
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +28,21 @@ func getTestVersionMessage() *models.Message {
 	}
 
 	return models.NewVersionMessage(&version)
+}
+
+func TestMain(m *testing.M) {
+	// === BEFORE ALL TESTS ===
+	inits.SetupTests()
+	inits.SetupTestsDatabase()
+
+	// Run the tests
+	code := m.Run()
+
+	// === AFTER ALL TESTS ===
+	inits.CloseTestDatabase()
+
+	// Exit with the right code
+	os.Exit(code)
 }
 
 func TestSendPingToNetwork(t *testing.T) {
@@ -70,7 +86,7 @@ func TestSendPingToNetwork(t *testing.T) {
 }
 
 func TestSendMemPoolToNetwork(t *testing.T) {
-	inits.InitializeTestDatabase()
+	inits.ResetTestDatabase()
 	govKeyPair, err := inits.GenerateTestGovernmentKeyPair()
 
 	if err != nil {

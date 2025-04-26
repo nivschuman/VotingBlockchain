@@ -3,6 +3,7 @@ package test_init
 import (
 	"time"
 
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	hash "github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
@@ -73,8 +74,7 @@ func CreateTestTransaction(govKeyPair *ppk.KeyPair) (*models.Transaction, *ppk.K
 	return tx, voterKeyPair, nil
 }
 
-func InitializeTestDatabaseWithData(numberOfBlocks int, transactionsPerBlock int) (*ppk.KeyPair, []*models.Block, map[string]*ppk.KeyPair, error) {
-	InitializeTestDatabase()
+func CreateTestData(numberOfBlocks int, transactionsPerBlock int) (*ppk.KeyPair, []*models.Block, map[string]*ppk.KeyPair, error) {
 	govKeyPair, err := GenerateTestGovernmentKeyPair()
 
 	if err != nil {
@@ -121,4 +121,15 @@ func InitializeTestDatabaseWithData(numberOfBlocks int, transactionsPerBlock int
 	}
 
 	return govKeyPair, blocks, keyPairs, nil
+}
+
+func GenerateTestGovernmentKeyPair() (*ppk.KeyPair, error) {
+	keyPair, err := ppk.GenerateKeyPair()
+
+	if err != nil {
+		return nil, err
+	}
+
+	config.GlobalConfig.GovernmentConfig.PublicKey = keyPair.PublicKey.AsBytes()
+	return keyPair, nil
 }

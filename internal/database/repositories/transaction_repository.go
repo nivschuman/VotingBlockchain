@@ -59,15 +59,17 @@ func (repo *TransactionRepository) GetMissingTransactionIds(ids *structures.Byte
 func (repo *TransactionRepository) InsertIfNotExists(transaction *models.Transaction) error {
 	return repo.db.Transaction(func(tx *gorm.DB) error {
 		existingTransaction := &db_models.TransactionDB{}
-		err := tx.Where("id = ?", transaction.Id).First(existingTransaction).Error
+		result := tx.Where("id = ?", transaction.Id).Find(existingTransaction)
 
-		if err == gorm.ErrRecordNotFound {
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
 			transactionDB := mapping.TransactionToTransactionDB(transaction)
 			if err := tx.Create(transactionDB).Error; err != nil {
 				return err
 			}
-		} else if err != nil {
-			return err
 		}
 
 		return nil
@@ -139,12 +141,16 @@ func (repo *TransactionRepository) TransactionIsValid(transaction *models.Transa
 
 func (repo *TransactionRepository) insertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error {
 	existingTransaction := &db_models.TransactionDB{}
-	err := tx.Where("id = ?", transaction.Id).First(existingTransaction).Error
+	result := tx.Where("id = ?", transaction.Id).Find(existingTransaction)
 
-	if err == gorm.ErrRecordNotFound {
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
 		transactionDB := mapping.TransactionToTransactionDB(transaction)
 		return tx.Create(transactionDB).Error
 	}
 
-	return err
+	return nil
 }

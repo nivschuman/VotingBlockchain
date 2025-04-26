@@ -2,14 +2,30 @@ package repositories_test
 
 import (
 	"math/big"
+	"os"
 	"testing"
 
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
+func TestMain(m *testing.M) {
+	// === BEFORE ALL TESTS ===
+	inits.SetupTests()
+	inits.SetupTestsDatabase()
+
+	// Run the tests
+	code := m.Run()
+
+	// === AFTER ALL TESTS ===
+	inits.CloseTestDatabase()
+
+	// Exit with the right code
+	os.Exit(code)
+}
+
 func TestGenesisBlock(t *testing.T) {
-	inits.InitializeTestDatabase()
+	inits.ResetTestDatabase()
 
 	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
 

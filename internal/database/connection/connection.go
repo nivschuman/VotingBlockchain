@@ -9,6 +9,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	config "github.com/nivschuman/VotingBlockchain/internal/database/config"
 	models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 )
 
@@ -27,29 +28,34 @@ func InitializeGlobalDB() error {
 	}
 
 	var err error
-	GlobalDB, err = GetAppDatabaseConnection()
+	GlobalDB, err = GetDatabaseConnection()
 
 	return err
 }
 
-func GetAppDatabaseConnection() (*gorm.DB, error) {
+func GetDatabaseConnection() (*gorm.DB, error) {
 	env := os.Getenv("APP_ENV")
 
 	if env == "" {
 		return nil, errors.New("APP_ENV environment variable not set")
 	}
 
-	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
+	dbFile := "databases/blockchain.db"
 
-	dir := "databases"
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-			return nil, fmt.Errorf("failed to create databases directory: %w", err)
+	if env != "test" {
+		dir := "databases"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+				return nil, fmt.Errorf("failed to create databases directory: %w", err)
+			}
+			log.Printf("Created directory '%s'", dir)
 		}
-		log.Printf("Created directory '%s'", dir)
+	} else if env == "test" {
+		dbFile = ":memory:"
+		log.Println("Using in-memory database for testing")
 	}
 
-	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(dbFile), config.GetGormConfig())
 
 	if err != nil {
 		return nil, err
@@ -63,6 +69,15 @@ func GetAppDatabaseConnection() (*gorm.DB, error) {
 	return db, nil
 }
 
+func CloseDatabaseConnection(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+
+	return sqlDB.Close()
+}
+
 func ResetDatabase(db *gorm.DB) error {
 	err := db.Migrator().DropTable(modelsToMigrate...)
 
@@ -71,28 +86,4 @@ func ResetDatabase(db *gorm.DB) error {
 	}
 
 	return db.AutoMigrate(modelsToMigrate...)
-}
-
-func DeleteDatabase() error {
-	env := os.Getenv("APP_ENV")
-
-	if env == "" {
-		return errors.New("APP_ENV environment variable not set")
-	}
-
-	dbFile := fmt.Sprintf("databases/blockchain-%s.db", env)
-
-	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
-		log.Printf("Database file '%s' does not exist, nothing to delete", dbFile)
-		return nil
-	}
-
-	err := os.Remove(dbFile)
-
-	if err != nil {
-		return fmt.Errorf("failed to delete database file: %w", err)
-	}
-
-	log.Printf("Database file '%s' deleted successfully", dbFile)
-	return nil
 }

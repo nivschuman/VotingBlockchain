@@ -48,10 +48,13 @@ func (blockRepository *BlockRepository) GetBlockCumulativeWork(blockHeaderId []b
 func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) error {
 	return blockRepository.db.Transaction(func(tx *gorm.DB) error {
 		var existing db_models.BlockDB
-		err := tx.Where("block_header_id = ?", block.Header.Id).First(&existing).Error
-		exists := err == nil
+		result := tx.Where("block_header_id = ?", block.Header.Id).Find(&existing)
 
-		if exists {
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected > 0 {
 			return nil
 		}
 
@@ -64,15 +67,18 @@ func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) e
 			blockDB.CumulativeWork = blockWork
 		} else {
 			var prevBlockDB db_models.BlockDB
-			err := tx.Where("block_header_id = ?", block.Header.PreviousBlockId).First(&prevBlockDB).Error
-			prevBlockExists := err == nil
+			result := tx.Where("block_header_id = ?", block.Header.PreviousBlockId).Find(&prevBlockDB)
 
-			if prevBlockExists {
+			if result.Error != nil {
+				return result.Error
+			}
+
+			if result.RowsAffected > 0 {
 				blockDB.Height = prevBlockDB.Height + 1
 				blockDB.InActiveChain = bytes.Equal(block.Header.PreviousBlockId, blockRepository.ActiveChainTipId)
 				blockDB.CumulativeWork = blockWork.Add(prevBlockDB.CumulativeWork)
 			} else {
-				return fmt.Errorf("cannot insert orphan block, previous block %x not found", block.Header.PreviousBlockId)
+				return fmt.Errorf("orphan")
 			}
 		}
 
