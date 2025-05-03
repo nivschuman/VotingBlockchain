@@ -49,6 +49,25 @@ func BlockHeaderToBlockHeaderDB(blockHeader *models.BlockHeader) *db_models.Bloc
 	}
 }
 
+func BlockHeaderDBToBlockHeader(blockHeaderDB *db_models.BlockHeaderDB) *models.BlockHeader {
+	var prevBlockHeaderId []byte
+
+	if blockHeaderDB.PreviousBlockHeaderId != nil {
+		prevBlockHeaderId = slices.Clone(*blockHeaderDB.PreviousBlockHeaderId)
+	}
+
+	return &models.BlockHeader{
+		Id:              slices.Clone(blockHeaderDB.Id),
+		Version:         blockHeaderDB.Version,
+		MerkleRoot:      slices.Clone(blockHeaderDB.MerkleRoot),
+		Timestamp:       blockHeaderDB.Timestamp,
+		NBits:           blockHeaderDB.NBits,
+		Nonce:           blockHeaderDB.Nonce,
+		MinerPublicKey:  slices.Clone(blockHeaderDB.MinerPublicKey),
+		PreviousBlockId: prevBlockHeaderId,
+	}
+}
+
 func BlockToBlockDB(block *models.Block) *db_models.BlockDB {
 	blockHeaderDB := BlockHeaderToBlockHeaderDB(&block.Header)
 

@@ -1,8 +1,6 @@
 package repositories
 
 import (
-	"fmt"
-
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 	mapping "github.com/nivschuman/VotingBlockchain/internal/mapping"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
@@ -28,6 +26,23 @@ func InitializeGlobalTransactionRepository(db *gorm.DB) error {
 	return nil
 }
 
+func (repo *TransactionRepository) GetTransactions(ids *structures.BytesSet) ([]*models.Transaction, error) {
+	var transactionsDB []db_models.TransactionDB
+	result := repo.db.Where("id IN (?)", ids.ToBytesSlice()).Find(&transactionsDB)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	transactions := make([]*models.Transaction, len(transactionsDB))
+
+	for idx, txDB := range transactionsDB {
+		transactions[idx] = mapping.TransactionDBToTransaction(&txDB)
+	}
+
+	return transactions, nil
+}
+
 func (repo *TransactionRepository) GetMissingTransactionIds(ids *structures.BytesSet) (*structures.BytesSet, error) {
 	transactionIds := ids.ToBytesSlice()
 
@@ -37,7 +52,7 @@ func (repo *TransactionRepository) GetMissingTransactionIds(ids *structures.Byte
 
 	var existingTransactions []db_models.TransactionDB
 	if err := repo.db.Where("id IN (?)", transactionIds).Find(&existingTransactions).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch transactions: %v", err)
+		return nil, err
 	}
 
 	existingIds := structures.NewBytesSet()

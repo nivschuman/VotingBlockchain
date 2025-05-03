@@ -45,7 +45,13 @@ func (blockHeader *BlockHeader) AsBytes() []byte {
 	binary.Write(buf, binary.BigEndian, blockHeader.Timestamp)
 	binary.Write(buf, binary.BigEndian, blockHeader.NBits)
 	binary.Write(buf, binary.BigEndian, blockHeader.Nonce)
-	buf.Write(blockHeader.PreviousBlockId)
+
+	if blockHeader.PreviousBlockId != nil {
+		buf.Write(blockHeader.PreviousBlockId)
+	} else {
+		buf.Write(make([]byte, 32))
+	}
+
 	buf.Write(blockHeader.MerkleRoot)
 	buf.Write(blockHeader.MinerPublicKey)
 
@@ -72,6 +78,10 @@ func BlockHeaderFromBytes(b []byte) (*BlockHeader, error) {
 	blockHeader.PreviousBlockId = make([]byte, 32)
 	if _, err := buf.Read(blockHeader.PreviousBlockId); err != nil {
 		return nil, err
+	}
+
+	if bytes.Equal(blockHeader.PreviousBlockId, make([]byte, 32)) {
+		blockHeader.PreviousBlockId = nil
 	}
 
 	blockHeader.MerkleRoot = make([]byte, 32)
