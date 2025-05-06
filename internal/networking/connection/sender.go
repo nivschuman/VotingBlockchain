@@ -1,7 +1,6 @@
 package networking_connection
 
 import (
-	"fmt"
 	"net"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -45,11 +44,7 @@ func (sender *Sender) sendPayload(conn net.Conn, payload []byte) error {
 	length := len(payload)
 
 	for totalBytesSent < len(payload) {
-		end := totalBytesSent + chunkSize
-
-		if end > length {
-			end = length
-		}
+		end := min(totalBytesSent+chunkSize, length)
 
 		chunk := payload[totalBytesSent:end]
 		err := sendBytes(conn, chunk)
@@ -69,7 +64,7 @@ func sendBytes(conn net.Conn, bytesToSend []byte) error {
 	for totalBytesWritten < len(bytesToSend) {
 		n, err := conn.Write(bytesToSend[totalBytesWritten:])
 		if err != nil {
-			return fmt.Errorf("failed to write bytes: %v", err)
+			return err
 		}
 
 		totalBytesWritten += n

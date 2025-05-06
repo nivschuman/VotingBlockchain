@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 )
 
 type BlockHeader struct {
@@ -19,10 +20,9 @@ type BlockHeader struct {
 	MinerPublicKey  []byte //public key of miner that made the block, marshal compressed, 33 bytes
 }
 
-type Block[T Content] struct {
-	Header      BlockHeader //header of block
-	ContentType uint16      //code of type of content in block
-	Content     []T         //array of block content
+type Block struct {
+	Header       BlockHeader    //header of block
+	Transactions []*Transaction //transactions inside block (ordered)
 }
 
 func (blockHeader *BlockHeader) GetHash() []byte {
@@ -34,10 +34,8 @@ func (blockHeader *BlockHeader) SetId() {
 }
 
 func (blockHeader *BlockHeader) IsHashBelowTarget() bool {
-	targetBigInt := getTargetFromNBits(blockHeader.NBits)
-	blockBigInt := new(big.Int).SetBytes(blockHeader.GetHash())
-
-	return blockBigInt.Cmp(targetBigInt) <= 0
+	target := difficulty.GetTargetFromNBits(blockHeader.NBits)
+	return difficulty.IsHashBelowTarget(blockHeader.GetHash(), target)
 }
 
 func (blockHeader *BlockHeader) AsBytes() []byte {
@@ -54,35 +52,100 @@ func (blockHeader *BlockHeader) AsBytes() []byte {
 	return buf.Bytes()
 }
 
-func (block *Block[T]) AsBytes() []byte {
+func BlockHeaderFromBytes(b []byte) (*BlockHeader, error) {
+	buf := bytes.NewReader(b)
+	blockHeader := &BlockHeader{}
+
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Version); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Timestamp); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.NBits); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &blockHeader.Nonce); err != nil {
+		return nil, err
+	}
+
+	blockHeader.PreviousBlockId = make([]byte, 32)
+	if _, err := buf.Read(blockHeader.PreviousBlockId); err != nil {
+		return nil, err
+	}
+
+	blockHeader.MerkleRoot = make([]byte, 32)
+	if _, err := buf.Read(blockHeader.MerkleRoot); err != nil {
+		return nil, err
+	}
+
+	blockHeader.MinerPublicKey = make([]byte, 33)
+	if _, err := buf.Read(blockHeader.MinerPublicKey); err != nil {
+		return nil, err
+	}
+
+	blockHeader.SetId()
+
+	return blockHeader, nil
+}
+
+func (block *Block) AsBytes() []byte {
 	buf := new(bytes.Buffer)
 
 	buf.Write(block.Header.AsBytes())
-	binary.Write(buf, binary.BigEndian, uint16(block.ContentType))
 
-	for _, content := range block.Content {
-		buf.Write(content.AsBytes())
+	binary.Write(buf, binary.BigEndian, uint32(len(block.Transactions)))
+	for _, tx := range block.Transactions {
+		txBytes := tx.AsBytes()
+		binary.Write(buf, binary.BigEndian, uint32(len(txBytes)))
+		buf.Write(txBytes)
 	}
 
 	return buf.Bytes()
 }
 
-func getTargetFromNBits(nBits uint32) *big.Int {
-	// Extract exponent (first byte)
-	exponent := nBits >> 24
+func (block *Block) GetBlockWork() *big.Int {
+	return difficulty.CalculateWork(block.Header.NBits)
+}
 
-	// Extract coefficient (lower 3 bytes)
-	coefficient := nBits & 0x00FFFFFF
+func BlockFromBytes(b []byte) (*Block, error) {
+	buf := bytes.NewReader(b)
+	block := &Block{}
 
-	// Initialize a big integer for the target
-	target := big.NewInt(int64(coefficient))
-
-	// Shift the coefficient by (exponent - 3) to adjust the target
-	if exponent > 3 {
-		// Left shift by (exponent - 3) bytes, equivalent to multiplying by 256^(exponent-3)
-		target.Lsh(target, uint(8*(exponent-3)))
+	headerBytes := make([]byte, 117)
+	if _, err := buf.Read(headerBytes); err != nil {
+		return nil, err
 	}
 
-	// Return the target as a big integer
-	return target
+	blockHeader, err := BlockHeaderFromBytes(headerBytes)
+	if err != nil {
+		return nil, err
+	}
+	block.Header = *blockHeader
+
+	var numTransactions uint32
+	if err := binary.Read(buf, binary.BigEndian, &numTransactions); err != nil {
+		return nil, err
+	}
+
+	for i := uint32(0); i < numTransactions; i++ {
+		var txLength uint32
+		if err := binary.Read(buf, binary.BigEndian, &txLength); err != nil {
+			return nil, err
+		}
+
+		txBytes := make([]byte, txLength)
+		if _, err := buf.Read(txBytes); err != nil {
+			return nil, err
+		}
+
+		tx, err := TransactionFromBytes(txBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		block.Transactions = append(block.Transactions, tx)
+	}
+
+	return block, nil
 }

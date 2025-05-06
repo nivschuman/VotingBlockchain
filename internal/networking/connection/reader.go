@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"slices"
 	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -135,7 +136,7 @@ func (reader *Reader) processMessage() (*models.Message, error) {
 
 	message := models.Message{
 		MessageHeader: messageHeader,
-		Payload:       reader.PayloadBuffer,
+		Payload:       slices.Clone(reader.PayloadBuffer),
 	}
 
 	return &message, err

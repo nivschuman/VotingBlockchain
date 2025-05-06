@@ -1,35 +1,51 @@
 package networking_peer
 
 import (
+	"errors"
+	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	checksum "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
+	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
 )
+
+const PING_INTERVAL = 2 * time.Minute
+const SEND_DATA_INTERVAL = 100 * time.Second
 
 type Peer struct {
 	Conn net.Conn
 
-	Reader *connection.Reader
-	Sender *connection.Sender
+	HandshakeDetails *HandshakeDetails
+	PeerDetails      *PeerDetails
+	PingPongDetails  *PingPongDetails
 
-	ReadChannel      chan models.Message
-	SendChannel      chan models.Message
-	BroadcastChannel <-chan models.Message
+	SendChannel    chan<- models.Message
+	StopChannel    <-chan bool
+	MessageHandler func(*Peer, *models.Message)
 
-	StopChannel chan bool
+	Remove       bool
+	Disconnected bool
 
-	HandshakeState  HandshakeState
-	Initializer     bool
-	LastMessageTime time.Time
+	InventoryToSendMutex sync.Mutex
+	InventoryToSend      *models.Inv
 
-	Version *models.Version
+	reader *connection.Reader
+	sender *connection.Sender
+
+	readChannel chan models.Message
+	sendChannel chan models.Message
+
+	stopChannel    chan bool
+	disconnectOnce sync.Once
 }
 
-func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer bool) *Peer {
+func NewPeer(conn net.Conn, initializer bool) *Peer {
 	reader := connection.NewReader()
 	sender := connection.NewSender()
 
@@ -38,17 +54,38 @@ func NewPeer(conn net.Conn, broadcastChannel <-chan models.Message, initializer 
 
 	stopChannel := make(chan bool)
 
+	handshakeDetails := &HandshakeDetails{
+		HandshakeState: initialHandshakeState(initializer),
+		Initializer:    initializer,
+		Error:          nil,
+	}
+
+	pingPongDetails := &PingPongDetails{
+		Nonce:    0,
+		PingTime: time.Now(),
+		PongTime: time.Now(),
+	}
+
 	return &Peer{
 		Conn:             conn,
-		Reader:           reader,
-		Sender:           sender,
-		ReadChannel:      readChannel,
+		HandshakeDetails: handshakeDetails,
+		PeerDetails:      nil,
+		PingPongDetails:  pingPongDetails,
+		Disconnected:     false,
+		Remove:           false,
 		SendChannel:      sendChannel,
-		BroadcastChannel: broadcastChannel,
 		StopChannel:      stopChannel,
-		HandshakeState:   initialHandshakeState(initializer),
-		Initializer:      initializer,
+		InventoryToSend:  models.NewInv(),
+		reader:           reader,
+		sender:           sender,
+		readChannel:      readChannel,
+		sendChannel:      sendChannel,
+		stopChannel:      stopChannel,
 	}
+}
+
+func (peer *Peer) String() string {
+	return peer.Conn.RemoteAddr().String()
 }
 
 func (peer *Peer) StartPeer() {
@@ -56,25 +93,40 @@ func (peer *Peer) StartPeer() {
 	go peer.SendMessages()
 }
 
+func (peer *Peer) StartProcessing(messageHandler func(peer *Peer, message *models.Message)) {
+	peer.MessageHandler = messageHandler
+	go peer.ProcessMessages()
+	go peer.SendData()
+}
+
 func (peer *Peer) ReadMessages() {
 	for {
 		select {
 		case <-peer.StopChannel:
-			close(peer.ReadChannel)
+			close(peer.readChannel)
 			return
 		default:
-			message, err := peer.Reader.ReadMessage(peer.Conn)
+			message, err := peer.reader.ReadMessage(peer.Conn)
 
-			if err != nil {
-				log.Printf("error when receiving message: %v", err)
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				close(peer.readChannel)
+				peer.Disconnect()
 				return
 			}
 
-			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
-			if validChecksum {
-				peer.LastMessageTime = time.Now()
-				peer.ReadChannel <- *message
+			if err != nil {
+				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+				continue
 			}
+
+			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
+
+			if !validChecksum {
+				log.Printf("Invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr().String())
+				continue
+			}
+
+			peer.readChannel <- *message
 		}
 	}
 }
@@ -84,12 +136,38 @@ func (peer *Peer) SendMessages() {
 		select {
 		case <-peer.StopChannel:
 			return
-		default:
-			message := <-peer.SendChannel
-			if err := peer.Sender.SendMessage(peer.Conn, &message); err != nil {
-				peer.SendChannel <- message
-				time.Sleep(time.Millisecond * 500)
+		case message := <-peer.sendChannel:
+			err := peer.sender.SendMessage(peer.Conn, &message)
+
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				peer.Disconnect()
+				return
 			}
+
+			if err != nil {
+				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+			}
+		}
+	}
+}
+
+func (peer *Peer) SendData() {
+	sendDataInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerData := time.NewTicker(sendDataInterval)
+	defer tickerData.Stop()
+
+	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerPing := time.NewTicker(pingInterval)
+	defer tickerPing.Stop()
+
+	for {
+		select {
+		case <-peer.StopChannel:
+			return
+		case <-tickerPing.C:
+			peer.MaybeSendPing()
+		case <-tickerData.C:
+			peer.SendInventory()
 		}
 	}
 }
@@ -99,26 +177,68 @@ func (peer *Peer) ProcessMessages() {
 		select {
 		case <-peer.StopChannel:
 			return
-		default:
-			message := <-peer.ReadChannel
-			peer.processMessage(&message)
+		case message := <-peer.readChannel:
+			peer.MessageHandler(peer, &message)
 		}
 	}
 }
 
 func (peer *Peer) Disconnect() {
-	close(peer.StopChannel)
+	peer.disconnectOnce.Do(func() {
+		close(peer.stopChannel)
 
-	if peer.Conn != nil {
-		err := peer.Conn.Close()
-		if err != nil {
-			log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr(), err)
+		if peer.Conn != nil {
+			err := peer.Conn.Close()
+			if err != nil {
+				log.Printf("Error closing connection for peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+			}
 		}
-	}
 
-	close(peer.SendChannel)
+		peer.Disconnected = true
+	})
 }
 
-func (peer *Peer) processMessage(message *models.Message) {
+func (peer *Peer) MaybeSendPing() {
+	if peer.PingPongDetails.Nonce != 0 {
+		return
+	}
 
+	n, err := nonce.Generator.GenerateNonce()
+
+	if err != nil {
+		return
+	}
+
+	peer.PingPongDetails.PingTime = time.Now()
+	peer.PingPongDetails.Nonce = n
+
+	select {
+	case <-peer.StopChannel:
+		return
+	case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
+	}
+}
+
+func (peer *Peer) SendInventory() {
+	peer.InventoryToSendMutex.Lock()
+	defer peer.InventoryToSendMutex.Unlock()
+
+	if peer.InventoryToSend.Count == 0 {
+		return
+	}
+
+	invBytes, err := peer.InventoryToSend.AsBytes()
+
+	if err != nil {
+		return
+	}
+
+	message := *models.NewMessage(models.CommandInv, invBytes)
+
+	select {
+	case <-peer.StopChannel:
+		return
+	case peer.SendChannel <- message:
+		peer.InventoryToSend.Clear()
+	}
 }

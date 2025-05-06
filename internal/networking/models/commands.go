@@ -15,4 +15,5 @@ var (
 	CommandAddr      = [12]byte{'a', 'd', 'd', 'r'}
 	CommandGetAddr   = [12]byte{'g', 'e', 't', 'a', 'd', 'd', 'r'}
 	CommandNotFound  = [12]byte{'n', 'o', 't', 'f', 'o', 'u', 'n', 'd'}
+	CommandMemPool   = [12]byte{'m', 'e', 'm', 'p', 'o', 'o', 'l'}
 )

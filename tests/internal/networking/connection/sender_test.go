@@ -2,27 +2,33 @@ package networking_connection_test
 
 import (
 	"bytes"
+	"log"
+	"net"
 	"testing"
 
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
-	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
+	_ "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
 func TestSender_SendMessage(t *testing.T) {
 	testMessage := getTestMessage()
 
-	conn := mocks.NewConnMock()
+	peer1Conn, peer2Conn := net.Pipe()
 
-	sender := connection.NewSender()
-	err := sender.SendMessage(conn, &testMessage)
+	go func() {
+		sender := connection.NewSender()
+		err := sender.SendMessage(peer1Conn, &testMessage)
 
-	if err != nil {
-		t.Fatalf("error in read message: %v", err)
-	}
+		if err != nil {
+			log.Printf("failed to send message: %v", err)
+		}
+
+		peer2Conn.Close()
+	}()
 
 	var receivedMagicBytes [4]byte
-	amount, err := conn.ReadFromRemote(receivedMagicBytes[:])
+	amount, err := peer2Conn.Read(receivedMagicBytes[:])
 
 	if err != nil {
 		t.Fatalf("error in reading sent magic bytes: %v", err)
@@ -32,14 +38,23 @@ func TestSender_SendMessage(t *testing.T) {
 		t.Fatalf("received bad magic bytes %x", receivedMagicBytes)
 	}
 
-	receivedMessage := make([]byte, len(testMessage.AsBytes()))
-	_, err = conn.ReadFromRemote(receivedMessage)
+	length := len(testMessage.AsBytes())
+	receivedMessage := make([]byte, length)
+	totalRead := 0
 
-	if err != nil {
-		t.Fatalf("error in reading message: %v", err)
+	for totalRead < length {
+		n, err := peer2Conn.Read(receivedMessage[totalRead:])
+
+		if err != nil {
+			t.Fatalf("error in reading message: %v", err)
+		}
+
+		totalRead += n
 	}
 
 	if !bytes.Equal(receivedMessage, testMessage.AsBytes()) {
 		t.Fatalf("received message not equal to test message %x", receivedMessage)
 	}
+
+	peer1Conn.Close()
 }
