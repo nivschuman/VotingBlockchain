@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"log"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	connectors "github.com/nivschuman/VotingBlockchain/internal/networking/connectors"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -25,6 +27,9 @@ type Network struct {
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
 
+	orphanBlocks      *structures.BytesMap[*data_models.Block]
+	orphanBlocksMutex sync.RWMutex
+
 	stopChannel chan bool      // Channel to signal shutdown
 	wg          sync.WaitGroup // WaitGroup to track running goroutines
 }
@@ -39,6 +44,7 @@ func NewNetwork() *Network {
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
+	network.orphanBlocks = structures.NewBytesMap[*data_models.Block]()
 
 	return network
 }
@@ -129,6 +135,25 @@ func (network *Network) RemovePeer(peer *peer.Peer) {
 	delete(network.Peers, peer.Conn.RemoteAddr().String())
 }
 
+func (network *Network) NetworkTime() int64 {
+	offsets := make([]int64, 0, len(network.Peers))
+
+	network.PeersMutex.RLock()
+	for _, peer := range network.Peers {
+		offsets = append(offsets, peer.PeerDetails.TimeOffset)
+	}
+	network.PeersMutex.RUnlock()
+
+	if len(offsets) == 0 {
+		return time.Now().Unix()
+	}
+
+	slices.Sort(offsets)
+	medianOffset := offsets[len(offsets)/2]
+
+	return time.Now().Add(time.Duration(medianOffset) * time.Second).Unix()
+}
+
 func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	//already connected to peer
 	network.PeersMutex.RLock()
@@ -160,138 +185,520 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 func (network *Network) processMessage(fromPeer *peer.Peer, message *models.Message) {
 	//ping
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandPing[:]) {
-		select {
-		case <-fromPeer.StopChannel:
-			return
-		case fromPeer.SendChannel <- *models.NewMessage(models.CommandPong, message.Payload):
-		}
+		network.processPing(fromPeer, message)
+		return
 	}
 
 	//pong
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandPong[:]) {
-		n := nonce.NonceFromBytes(message.Payload)
-		if fromPeer.PingPongDetails.Nonce == n {
-			latency := time.Since(fromPeer.PingPongDetails.PingTime)
-			fromPeer.PingPongDetails.Latency = latency
-			fromPeer.PingPongDetails.PongTime = time.Now()
-			fromPeer.PingPongDetails.Nonce = 0
-		}
+		network.processPong(fromPeer, message)
+		return
 	}
 
 	//inv
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandInv[:]) {
-		inv, err := models.InvFromBytes(message.Payload)
+		network.processInv(fromPeer, message)
+		return
+	}
 
-		if err != nil {
-			log.Printf("Failed to parse inv from %s: %v", fromPeer.String(), err)
-			return
-		}
-
-		getData := models.NewGetData()
-
-		blockHashes := structures.NewBytesSet()
-		txHashes := structures.NewBytesSet()
-
-		for _, invItem := range inv.Items {
-			if invItem.Type == models.MSG_BLOCK {
-				blockHashes.Add(invItem.Hash)
-			} else if invItem.Type == models.MSG_TX {
-				txHashes.Add(invItem.Hash)
-			}
-		}
-
-		missingTransactions, err := repos.GlobalTransactionRepository.GetMissingTransactionIds(txHashes)
-
-		if err != nil {
-			log.Printf("Failed to get missing transactions : %v", err)
-			return
-		}
-
-		for _, id := range missingTransactions.ToBytesSlice() {
-			getData.AddItem(models.MSG_TX, id)
-		}
-
-		//TBD handle blocks
-
-		getDataMessage, err := models.NewGetDataMessage(getData)
-
-		if err != nil {
-			log.Printf("Failed to make get data message for %s : %v", fromPeer.String(), err)
-			return
-		}
-
-		select {
-		case <-fromPeer.StopChannel:
-			return
-		case fromPeer.SendChannel <- *getDataMessage:
-		}
+	//getdata
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandGetData[:]) {
+		network.processGetData(fromPeer, message)
+		return
 	}
 
 	//tx
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandTx[:]) {
-		transaction, err := data_models.TransactionFromBytes(message.Payload)
-
-		if err != nil {
-			log.Printf("Failed to parse transaction from %s: %v", fromPeer.String(), err)
-			return
-		}
-
-		valid, err := repos.GlobalTransactionRepository.TransactionIsValid(transaction)
-
-		if err != nil {
-			log.Printf("Failed validating transaction from %s: %v", fromPeer.String(), err)
-			return
-		}
-
-		if !valid {
-			log.Printf("Received invalid transaction from %s", fromPeer.String())
-			return
-		}
-
-		err = repos.GlobalTransactionRepository.InsertIfNotExists(transaction)
-
-		if err != nil {
-			log.Printf("Failed to insert transaction from %s: %v", fromPeer.String(), err)
-		}
-
-		network.PeersMutex.RLock()
-		for _, peer := range network.Peers {
-			if peer != fromPeer {
-				peer.InventoryToSendMutex.Lock()
-				peer.InventoryToSend.AddItem(models.MSG_TX, transaction.Id)
-				peer.InventoryToSendMutex.Unlock()
-			}
-		}
-		network.PeersMutex.RUnlock()
+		network.processTx(fromPeer, message)
+		return
 	}
 
 	//mempool
 	if bytes.Equal(message.MessageHeader.Command[:], models.CommandMemPool[:]) {
-		transactions, err := repos.GlobalTransactionRepository.GetMempool(10)
+		network.processMemPool(fromPeer, message)
+		return
+	}
 
-		if err != nil {
-			log.Printf("Failed to get mempool for %s: %v", fromPeer.String(), err)
-			return
+	//getblocks
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandGetBlocks[:]) {
+		network.processGetBlocks(fromPeer, message)
+		return
+	}
+
+	//block
+	if bytes.Equal(message.MessageHeader.Command[:], models.CommandBlock[:]) {
+		network.processBlock(fromPeer, message)
+		return
+	}
+}
+
+func (network *Network) processPing(fromPeer *peer.Peer, message *models.Message) {
+	select {
+	case <-fromPeer.StopChannel:
+		return
+	case fromPeer.SendChannel <- *models.NewMessage(models.CommandPong, message.Payload):
+	}
+}
+
+func (network *Network) processPong(fromPeer *peer.Peer, message *models.Message) {
+	n := nonce.NonceFromBytes(message.Payload)
+	if fromPeer.PingPongDetails.Nonce == n {
+		latency := time.Since(fromPeer.PingPongDetails.PingTime)
+		fromPeer.PingPongDetails.Latency = latency
+		fromPeer.PingPongDetails.PongTime = time.Now()
+		fromPeer.PingPongDetails.Nonce = 0
+	}
+}
+
+func (network *Network) processInv(fromPeer *peer.Peer, message *models.Message) {
+	inv, err := models.InvFromBytes(message.Payload)
+
+	if err != nil {
+		log.Printf("Failed to parse inv from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	getData := models.NewGetData()
+
+	blockHashes := structures.NewBytesSet()
+	txHashes := structures.NewBytesSet()
+
+	for _, invItem := range inv.Items {
+		if invItem.Type == models.MSG_BLOCK {
+			blockHashes.Add(invItem.Hash)
+		} else if invItem.Type == models.MSG_TX {
+			txHashes.Add(invItem.Hash)
 		}
+	}
 
-		inv := models.NewInv()
+	missingTransactions, err := repos.GlobalTransactionRepository.GetMissingTransactionIds(txHashes)
 
-		for _, tx := range transactions {
-			inv.AddItem(models.MSG_TX, tx.Id)
+	if err != nil {
+		log.Printf("Failed to get missing transactions : %v", err)
+		return
+	}
+
+	missingBlocks, err := repos.GlobalBlockRepository.GetMissingBlockIds(blockHashes)
+
+	if err != nil {
+		log.Printf("Failed to get missing blocks : %v", err)
+		return
+	}
+
+	for _, id := range missingTransactions.ToBytesSlice() {
+		getData.AddItem(models.MSG_TX, id)
+	}
+
+	for _, id := range missingBlocks.ToBytesSlice() {
+		getData.AddItem(models.MSG_BLOCK, id)
+	}
+
+	getDataMessage, err := models.NewGetDataMessage(getData)
+
+	if err != nil {
+		log.Printf("Failed to make get data message for %s : %v", fromPeer.String(), err)
+		return
+	}
+
+	select {
+	case <-fromPeer.StopChannel:
+		return
+	case fromPeer.SendChannel <- *getDataMessage:
+	}
+}
+
+func (network *Network) processTx(fromPeer *peer.Peer, message *models.Message) {
+	transaction, err := data_models.TransactionFromBytes(message.Payload)
+
+	if err != nil {
+		log.Printf("Failed to parse transaction from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	valid, err := transaction.IsValid()
+
+	if err != nil {
+		log.Printf("Failed to validate transaction from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !valid {
+		log.Printf("Received invalid transaction from %s", fromPeer.String())
+		return
+	}
+
+	valid, err = repos.GlobalTransactionRepository.TransactionValidInActiveChain(transaction)
+
+	if err != nil {
+		log.Printf("Failed validating transaction from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !valid {
+		log.Printf("Received invalid transaction from %s", fromPeer.String())
+		return
+	}
+
+	err = repos.GlobalTransactionRepository.InsertIfNotExists(transaction)
+
+	if err != nil {
+		log.Printf("Failed to insert transaction from %s: %v", fromPeer.String(), err)
+	}
+
+	network.PeersMutex.RLock()
+	for _, peer := range network.Peers {
+		if peer != fromPeer {
+			peer.InventoryToSendMutex.Lock()
+			peer.InventoryToSend.AddItem(models.MSG_TX, transaction.Id)
+			peer.InventoryToSendMutex.Unlock()
 		}
+	}
+	network.PeersMutex.RUnlock()
+}
 
-		invBytes, err := inv.AsBytes()
+func (network *Network) processMemPool(fromPeer *peer.Peer, _ *models.Message) {
+	transactions, err := repos.GlobalTransactionRepository.GetMempool(10)
 
-		if err != nil {
-			log.Printf("Failed to get mempool inv bytes for %s: %v", fromPeer.String(), err)
-			return
+	if err != nil {
+		log.Printf("Failed to get mempool for %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	inv := models.NewInv()
+
+	for _, tx := range transactions {
+		inv.AddItem(models.MSG_TX, tx.Id)
+	}
+
+	mempoolMessage, err := models.NewInvMessage(inv)
+
+	if err != nil {
+		log.Printf("Failed to create mempool inv message for %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	select {
+	case <-fromPeer.StopChannel:
+		return
+	case fromPeer.SendChannel <- *mempoolMessage:
+	}
+}
+
+func (network *Network) processGetData(fromPeer *peer.Peer, message *models.Message) {
+	getData, err := models.GetDataFromBytes(message.Payload)
+
+	if err != nil {
+		log.Printf("Failed to parse getdata from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	blockHashes := structures.NewBytesSet()
+	txHashes := structures.NewBytesSet()
+
+	for _, item := range getData.Items() {
+		if item.Type == models.MSG_BLOCK {
+			blockHashes.Add(item.Hash)
+		} else if item.Type == models.MSG_TX {
+			txHashes.Add(item.Hash)
 		}
+	}
 
-		mempoolMessage := models.NewMessage(models.CommandInv, invBytes)
+	transactions, err := repos.GlobalTransactionRepository.GetTransactions(txHashes)
+
+	if err != nil {
+		log.Printf("Failed to get transactions : %v", err)
+		return
+	}
+
+	blocks, err := repos.GlobalBlockRepository.GetBlocks(blockHashes)
+
+	if err != nil {
+		log.Printf("Failed to get blocks : %v", err)
+		return
+	}
+
+	for _, tx := range transactions {
+		msg := models.NewMessage(models.CommandTx, tx.AsBytes())
+
 		select {
 		case <-fromPeer.StopChannel:
 			return
-		case fromPeer.SendChannel <- *mempoolMessage:
+		case fromPeer.SendChannel <- *msg:
 		}
 	}
+
+	for _, block := range blocks {
+		msg := models.NewMessage(models.CommandBlock, block.AsBytes())
+
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *msg:
+		}
+	}
+}
+
+func (network *Network) processGetBlocks(fromPeer *peer.Peer, message *models.Message) {
+	getBlocks, err := models.GetBlocksFromBytes(message.Payload)
+
+	if err != nil {
+		log.Printf("Failed to parse getblocks from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	blocksIds, err := repos.GlobalBlockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
+
+	if err != nil {
+		log.Printf("Failed to parse get next blocks for %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	inv := models.NewInv()
+
+	for _, blockId := range blocksIds.ToBytesSlice() {
+		inv.AddItem(models.MSG_BLOCK, blockId)
+	}
+
+	invMessage, err := models.NewInvMessage(inv)
+
+	if err != nil {
+		log.Printf("Failed to create get blocks inv message for %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	select {
+	case <-fromPeer.StopChannel:
+		return
+	case fromPeer.SendChannel <- *invMessage:
+	}
+}
+
+func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Message) {
+	//Parse block
+	block, err := data_models.BlockFromBytes(message.Payload)
+
+	if err != nil {
+		log.Printf("Failed to parse block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	//Check if already have block
+	if network.orphanBlocks.ContainsKey(block.Header.Id) {
+		return
+	}
+
+	exists, err := repos.GlobalBlockRepository.HaveBlock(block.Header.Id)
+
+	if err != nil {
+		log.Printf("Failed to check if block exists from %s is orphan: %v", fromPeer.String(), err)
+		return
+	}
+
+	if exists {
+		return
+	}
+
+	//Check if block is orphan
+	isOrphan, err := repos.GlobalBlockRepository.BlockIsOrphan(block)
+
+	if err != nil {
+		log.Printf("Failed to check if block from %s is orphan: %v", fromPeer.String(), err)
+	}
+
+	//Check block
+	isValid, err := network.checkBlock(block)
+
+	if err != nil {
+		log.Printf("Failed to check block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !isValid {
+		log.Printf("Received invalid block from %s", fromPeer.String())
+		return
+	}
+
+	//No further processing for orphan
+	if isOrphan {
+		network.orphanBlocksMutex.Lock()
+		network.orphanBlocks.Put(block.Header.Id, block)
+		network.orphanBlocksMutex.Unlock()
+
+		//Ask for block
+		blockLocator, err := repos.GlobalBlockRepository.GetActiveChainBlockLocator()
+
+		if err != nil {
+			log.Printf("Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		orphanRoot := network.getOrphanRoot(block)
+		getBlocks := models.NewGetBlocks(blockLocator, orphanRoot.Header.Id)
+
+		msg, err := models.NewGetBlocksMessage(getBlocks)
+		if err != nil {
+			log.Printf("Failed to make get blocks message for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *msg:
+		}
+
+		return
+	}
+
+	//Validate block
+	isValid, err = network.validateBlock(block)
+
+	if err != nil {
+		log.Printf("Failed to validate block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !isValid {
+		log.Printf("Received invalid block from %s", fromPeer.String())
+		return
+	}
+
+	//Insert block
+	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
+
+	if err != nil {
+		log.Printf("Failed to insert block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	//Process dependent orphans recursively
+	queue := []*data_models.Block{block}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		children := network.getConnectedOrphans(current.Header.Id)
+
+		for _, child := range children {
+			isValid, err := network.validateBlock(child)
+
+			if err != nil {
+				log.Printf("Failed to validate orphan child %x: %v", child.Header.Id, err)
+				continue
+			}
+
+			if !isValid {
+				log.Printf("Invalid orphan child block %x", child.Header.Id)
+				continue
+			}
+
+			err = repos.GlobalBlockRepository.InsertIfNotExists(child)
+
+			if err != nil {
+				log.Printf("Failed to insert orphan child block %x: %v", child.Header.Id, err)
+				continue
+			}
+
+			network.orphanBlocksMutex.Lock()
+			network.orphanBlocks.Remove(child.Header.Id)
+			network.orphanBlocksMutex.Unlock()
+
+			queue = append(queue, child)
+		}
+	}
+}
+
+func (network *Network) checkBlock(block *data_models.Block) (bool, error) {
+	//Timestamp must be less than the network adjusted time +2 hours.
+	if block.Header.Timestamp > network.NetworkTime()+2*60*60 {
+		return false, nil
+	}
+
+	//Proof of Work must be valid
+	if !block.Header.IsHashBelowTarget() {
+		return false, nil
+	}
+
+	//NBits must not be below minimum work
+	target := difficulty.GetTargetFromNBits(block.Header.NBits)
+	if target.Cmp(difficulty.GetTargetFromNBits(difficulty.MINIMUM_DIFFICULTY)) > 0 {
+		return false, nil
+	}
+
+	//Block transactions must be valid
+	for _, tx := range block.Transactions {
+		valid, err := tx.IsValid()
+
+		if err != nil {
+			return false, err
+		}
+
+		if !valid {
+			return false, nil
+		}
+	}
+
+	//TBD check merkle root
+
+	return true, nil
+}
+
+func (network *Network) validateBlock(block *data_models.Block) (bool, error) {
+	//Timestamp must be greater than the median time of the last 11 blocks
+	medianTimePast, err := repos.GlobalBlockRepository.GetMedianTimePast(block.Header.PreviousBlockId, 11)
+	if err != nil {
+		return false, err
+	}
+
+	if block.Header.Timestamp < medianTimePast {
+		return false, nil
+	}
+
+	//Validate transactions on this blocks chain
+	valid, err := repos.GlobalTransactionRepository.TransactionsValidInChain(block.Header.PreviousBlockId, block.Transactions)
+	if err != nil {
+		return false, err
+	}
+
+	if !valid {
+		return false, nil
+	}
+
+	//TBD make sure that difficulty fits network difficulty
+
+	return true, nil
+}
+
+func (network *Network) getConnectedOrphans(blockId []byte) []*data_models.Block {
+	blocks := make([]*data_models.Block, 0)
+
+	network.orphanBlocksMutex.RLock()
+	orphanBlocks := network.orphanBlocks.Values()
+	network.orphanBlocksMutex.RUnlock()
+
+	for _, orphanBlock := range orphanBlocks {
+		if bytes.Equal(orphanBlock.Header.PreviousBlockId, blockId) {
+			blocks = append(blocks, orphanBlock)
+		}
+	}
+
+	return blocks
+}
+
+func (network *Network) getOrphanRoot(orphanBlock *data_models.Block) *data_models.Block {
+	network.orphanBlocksMutex.RLock()
+	for {
+		prevId := orphanBlock.Header.PreviousBlockId
+
+		orphanParent, exists := network.orphanBlocks.Get(prevId)
+		if !exists {
+			break
+		}
+
+		orphanBlock = orphanParent
+	}
+	network.orphanBlocksMutex.RUnlock()
+
+	return orphanBlock
 }

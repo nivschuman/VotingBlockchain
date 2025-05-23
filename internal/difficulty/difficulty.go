@@ -2,6 +2,8 @@ package difficulty
 
 import "math/big"
 
+var MINIMUM_DIFFICULTY = uint32(0x1d00ffff)
+
 func GetTargetFromNBits(nBits uint32) *big.Int {
 	// Extract exponent (first byte)
 	exponent := nBits >> 24
@@ -16,6 +18,9 @@ func GetTargetFromNBits(nBits uint32) *big.Int {
 	if exponent > 3 {
 		// Left shift by (exponent - 3) bytes, equivalent to multiplying by 256^(exponent-3)
 		target.Lsh(target, uint(8*(exponent-3)))
+	} else if exponent < 3 {
+		// If the exponent is smaller than 3, it's a negative shift.
+		target.Rsh(target, uint(8*(3-exponent)))
 	}
 
 	// Return the target as a big integer
@@ -24,7 +29,7 @@ func GetTargetFromNBits(nBits uint32) *big.Int {
 
 func IsHashBelowTarget(hash []byte, target *big.Int) bool {
 	blockBigInt := new(big.Int).SetBytes(hash)
-	return blockBigInt.Cmp(blockBigInt) <= 0
+	return blockBigInt.Cmp(target) <= 0
 }
 
 func CalculateWork(nBits uint32) *big.Int {

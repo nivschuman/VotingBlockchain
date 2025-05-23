@@ -70,7 +70,7 @@ func TransactionFromBytes(b []byte) (*Transaction, error) {
 	}
 
 	transaction.GovernmentSignature = make([]byte, governmentSignatureLength)
-	if _, err := buf.Read(transaction.Signature); err != nil {
+	if _, err := buf.Read(transaction.GovernmentSignature); err != nil {
 		return nil, err
 	}
 
@@ -107,4 +107,28 @@ func (transaction *Transaction) GovernmentSignatureIsValid() (bool, error) {
 	}
 
 	return publicKey.VerifySignature(transaction.GovernmentSignature, hash.HashBytes(transaction.VoterPublicKey)), nil
+}
+
+func (transaction *Transaction) IsValid() (bool, error) {
+	valid, err := transaction.GovernmentSignatureIsValid()
+
+	if err != nil {
+		return false, err
+	}
+
+	if !valid {
+		return false, nil
+	}
+
+	valid, err = transaction.SignatureIsValid()
+
+	if err != nil {
+		return false, err
+	}
+
+	if !valid {
+		return false, nil
+	}
+
+	return true, nil
 }

@@ -20,6 +20,10 @@ func NewGetDataMessage(getData *GetData) (*Message, error) {
 	return NewMessage(CommandGetData, getDataBytes), nil
 }
 
+func (getData *GetData) Items() []InvItem {
+	return getData.inv.Items
+}
+
 func (getData *GetData) AddItem(itemType uint32, itemHash []byte) {
 	getData.inv.AddItem(itemType, itemHash)
 }

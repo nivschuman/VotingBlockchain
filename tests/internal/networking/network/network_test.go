@@ -1,6 +1,7 @@
 package network_test
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
@@ -49,6 +51,10 @@ func TestSendPingToNetwork(t *testing.T) {
 	network := network.NewNetwork()
 	network.StartNetwork()
 
+	t.Cleanup(func() {
+		network.StopNetwork()
+	})
+
 	ip := config.GlobalConfig.NetworkConfig.Ip
 	port := config.GlobalConfig.NetworkConfig.Port
 	address := net.JoinHostPort(ip, fmt.Sprint(port))
@@ -57,6 +63,10 @@ func TestSendPingToNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to dial network: %v", err)
 	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
 
 	doHandshake(conn)
 
@@ -80,9 +90,6 @@ func TestSendPingToNetwork(t *testing.T) {
 	if nonce.NonceFromBytes(pongMessage.Payload) != n {
 		t.Fatalf("Received pong with wrong nonce")
 	}
-
-	network.StopNetwork()
-	conn.Close()
 }
 
 func TestSendMemPoolToNetwork(t *testing.T) {
@@ -116,6 +123,10 @@ func TestSendMemPoolToNetwork(t *testing.T) {
 	network := network.NewNetwork()
 	network.StartNetwork()
 
+	t.Cleanup(func() {
+		network.StopNetwork()
+	})
+
 	ip := config.GlobalConfig.NetworkConfig.Ip
 	port := config.GlobalConfig.NetworkConfig.Port
 	address := net.JoinHostPort(ip, fmt.Sprint(port))
@@ -124,6 +135,10 @@ func TestSendMemPoolToNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to dial network: %v", err)
 	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
 
 	doHandshake(conn)
 
@@ -148,9 +163,197 @@ func TestSendMemPoolToNetwork(t *testing.T) {
 	if !inv.Contains(models.MSG_TX, tx1.Id) || !inv.Contains(models.MSG_TX, tx2.Id) {
 		t.Fatalf("Inv returned doesn't contain transactions")
 	}
+}
 
-	network.StopNetwork()
-	conn.Close()
+func TestSendGetDataToNetwork(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(5, 1)
+	if err != nil {
+		t.Fatalf("failed to create test data: %v", err)
+	}
+
+	getData := models.NewGetData()
+	getData.AddItem(models.MSG_BLOCK, blocks[0].Header.Id)
+	getData.AddItem(models.MSG_TX, blocks[0].Transactions[0].Id)
+
+	getDataMessage, err := models.NewGetDataMessage(getData)
+	if err != nil {
+		t.Fatalf("Failed to create get data message: %v", err)
+	}
+
+	network := network.NewNetwork()
+	network.StartNetwork()
+
+	t.Cleanup(func() {
+		network.StopNetwork()
+	})
+
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
+
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("Failed to dial network: %v", err)
+	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
+
+	doHandshake(conn)
+
+	sender := connection.NewSender()
+	sender.SendMessage(conn, getDataMessage)
+
+	reader := connection.NewReader()
+
+	msg1, err := reader.ReadMessage(conn)
+	if err != nil {
+		t.Fatalf("Failed to read message: %v", err)
+	}
+
+	msg2, err := reader.ReadMessage(conn)
+	if err != nil {
+		t.Fatalf("Failed to read message: %v", err)
+	}
+
+	if bytes.Equal(msg1.MessageHeader.Command[:], models.CommandBlock[:]) {
+		block, err := data_models.BlockFromBytes(msg1.Payload)
+		if err != nil {
+			t.Fatalf("Failed to parse block: %v", err)
+		}
+
+		if !bytes.Equal(block.AsBytes(), blocks[0].AsBytes()) {
+			t.Fatalf("Received wrong block")
+		}
+	} else if bytes.Equal(msg1.MessageHeader.Command[:], models.CommandTx[:]) {
+		tx, err := data_models.TransactionFromBytes(msg1.Payload)
+
+		if err != nil {
+			t.Fatalf("Failed to parse tx: %v", err)
+		}
+
+		if !bytes.Equal(tx.AsBytes(), blocks[0].Transactions[0].AsBytes()) {
+			t.Fatalf("Received wrong tx")
+		}
+	} else {
+		t.Fatalf("received bad command: %x", msg1.MessageHeader.Command[:])
+	}
+
+	if bytes.Equal(msg2.MessageHeader.Command[:], models.CommandBlock[:]) {
+		block, err := data_models.BlockFromBytes(msg2.Payload)
+		if err != nil {
+			t.Fatalf("Failed to parse block: %v", err)
+		}
+
+		if !bytes.Equal(block.AsBytes(), blocks[0].AsBytes()) {
+			t.Fatalf("Received wrong block")
+		}
+	} else if bytes.Equal(msg2.MessageHeader.Command[:], models.CommandTx[:]) {
+		tx, err := data_models.TransactionFromBytes(msg2.Payload)
+		if err != nil {
+			t.Fatalf("Failed to parse tx: %v", err)
+		}
+
+		if !bytes.Equal(tx.AsBytes(), blocks[0].Transactions[0].AsBytes()) {
+			t.Fatalf("Received wrong tx")
+		}
+	} else {
+		t.Fatalf("received bad command: %x", msg2.MessageHeader.Command[:])
+	}
+}
+
+func TestSendTransactionToNetwork(t *testing.T) {
+	inits.ResetTestDatabase()
+	govKeyPair, _, _, err := inits.CreateTestData(5, 1)
+	if err != nil {
+		t.Fatalf("failed to create test data: %v", err)
+	}
+
+	network := network.NewNetwork()
+	network.StartNetwork()
+
+	t.Cleanup(func() {
+		network.StopNetwork()
+	})
+
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
+
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("Failed to dial network: %v", err)
+	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
+
+	doHandshake(conn)
+
+	tx, _, err := inits.CreateTestTransaction(govKeyPair)
+	if err != nil {
+		t.Fatalf("Failed to create test transaction: %v", err)
+	}
+
+	sender := connection.NewSender()
+	sender.SendMessage(conn, models.NewMessage(models.CommandTx, tx.AsBytes()))
+
+	//wait for transaction to get inserted
+	time.Sleep(time.Second * 1)
+
+	_, err = repositories.GlobalTransactionRepository.GetTransaction(tx.Id)
+	if err != nil {
+		t.Fatalf("Failed get transaction from database: %v", err)
+	}
+}
+
+func TestSendBlockToNetwork(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(5, 1)
+	if err != nil {
+		t.Fatalf("failed to create test data: %v", err)
+	}
+
+	network := network.NewNetwork()
+	network.StartNetwork()
+
+	t.Cleanup(func() {
+		network.StopNetwork()
+	})
+
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
+
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("Failed to dial network: %v", err)
+	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
+
+	doHandshake(conn)
+
+	block, err := inits.CreateTestBlock(blocks[len(blocks)-1].Header.Id, make([]*data_models.Transaction, 0))
+	if err != nil {
+		t.Fatalf("Failed to create test block: %v", err)
+	}
+
+	sender := connection.NewSender()
+	sender.SendMessage(conn, models.NewMessage(models.CommandBlock, block.AsBytes()))
+
+	//wait for block to get inserted
+	time.Sleep(time.Second * 1)
+
+	_, err = repositories.GlobalBlockRepository.GetBlock(block.Header.Id)
+	if err != nil {
+		t.Fatalf("Failed get transaction from database: %v", err)
+	}
 }
 
 func doHandshake(conn net.Conn) {

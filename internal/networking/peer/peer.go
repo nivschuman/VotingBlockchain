@@ -227,18 +227,16 @@ func (peer *Peer) SendInventory() {
 		return
 	}
 
-	invBytes, err := peer.InventoryToSend.AsBytes()
+	invMessage, err := models.NewInvMessage(peer.InventoryToSend)
 
 	if err != nil {
 		return
 	}
 
-	message := *models.NewMessage(models.CommandInv, invBytes)
-
 	select {
 	case <-peer.StopChannel:
 		return
-	case peer.SendChannel <- message:
+	case peer.SendChannel <- *invMessage:
 		peer.InventoryToSend.Clear()
 	}
 }

@@ -98,9 +98,7 @@ func InvFromBytes(data []byte) (*Inv, error) {
 
 	inv := NewInv()
 
-	count := uint64(compactSize)
-
-	for i := uint64(0); i < count; i++ {
+	for i := uint64(0); i < compactSize; i++ {
 		var itemType uint32
 
 		if err := binary.Read(buf, binary.BigEndian, &itemType); err != nil {

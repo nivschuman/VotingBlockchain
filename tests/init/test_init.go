@@ -9,9 +9,12 @@ import (
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
 )
 
 func SetupTests() {
+	difficulty.MINIMUM_DIFFICULTY = uint32(0x207fffff)
+
 	err := os.Setenv("APP_ENV", "test")
 
 	if err != nil {
