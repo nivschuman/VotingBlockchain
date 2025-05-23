@@ -2,6 +2,8 @@ package difficulty
 
 import "math/big"
 
+var MINIMUM_DIFFICULTY = uint32(0x1d00ffff)
+
 func GetTargetFromNBits(nBits uint32) *big.Int {
 	// Extract exponent (first byte)
 	exponent := nBits >> 24

@@ -117,6 +117,10 @@ func TestTransactionFromBytes(t *testing.T) {
 	if !bytes.Equal(parsedTransaction.Id, transaction.Id) {
 		t.Fatalf("bad id for parsed transaction")
 	}
+
+	if !bytes.Equal(parsedTransaction.GovernmentSignature, transaction.GovernmentSignature) {
+		t.Fatalf("bad government signature for parsed transaction")
+	}
 }
 
 func TestSignatureIsValid_WhenSignatureIsValid(t *testing.T) {

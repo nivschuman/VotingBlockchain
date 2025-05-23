@@ -2,6 +2,8 @@ package repositories
 
 import (
 	"bytes"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -9,6 +11,7 @@ import (
 
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 	types "github.com/nivschuman/VotingBlockchain/internal/database/types"
+	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	mapping "github.com/nivschuman/VotingBlockchain/internal/mapping"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
@@ -34,6 +37,28 @@ func InitializeGlobalBlockRepository(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+func (repo *BlockRepository) HaveBlock(blockId []byte) (bool, error) {
+	var count int64
+	result := repo.db.Table("block_headers").Where("block_headers.id = ?", blockId).Count(&count)
+
+	if result.Error != nil {
+		return false, result.Error
+	}
+
+	return count > 0, nil
+}
+
+func (repo *BlockRepository) BlockIsOrphan(block *models.Block) (bool, error) {
+	var count int64
+	result := repo.db.Table("block_headers").Where("block_headers.id = ?", block.Header.PreviousBlockId).Count(&count)
+
+	if result.Error != nil {
+		return true, result.Error
+	}
+
+	return count <= 0, nil
 }
 
 func (repo *BlockRepository) GetMedianTimePast(startBlockId []byte, numberOfBlocks int) (int64, error) {
@@ -73,7 +98,7 @@ func (repo *BlockRepository) GetNextBlocksIds(blockLocator *structures.BlockLoca
 	var currentId []byte
 	for _, id := range ids {
 		var count int64
-		err := repo.db.Where("block_header_id = ?", id).Count(&count).Error
+		err := repo.db.Table("blocks").Where("block_header_id = ?", id).Count(&count).Error
 
 		if err != nil {
 			return nil, err
@@ -93,19 +118,18 @@ func (repo *BlockRepository) GetNextBlocksIds(blockLocator *structures.BlockLoca
 
 	for range limit {
 		var nextId []byte
-		result := repo.db.Table("block_headers").
+		err := repo.db.Table("block_headers").
 			Select("block_headers.id").
 			Joins("JOIN blocks ON blocks.block_header_id = block_headers.id").
 			Where("block_headers.previous_block_header_id = ? AND blocks.in_active_chain = ?", currentId, true).
-			Limit(1).
-			Find(&nextId)
+			Limit(1).Row().Scan(&nextId)
 
-		if result.Error != nil {
-			return nil, result.Error
-		}
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				break
+			}
 
-		if result.RowsAffected == 0 {
-			break
+			return nil, err
 		}
 
 		if stopHash != nil && bytes.Equal(nextId, stopHash) {
@@ -119,11 +143,64 @@ func (repo *BlockRepository) GetNextBlocksIds(blockLocator *structures.BlockLoca
 	return blocksIds, nil
 }
 
+func (repo *BlockRepository) GetActiveChainBlockLocator() (*structures.BlockLocator, error) {
+	locator := structures.NewBlockLocator()
+
+	var height uint64
+	err := repo.db.Table("blocks").
+		Select("height").
+		Where("block_header_id = ?", repo.ActiveChainTipId).
+		Pluck("height", &height).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	currentId := repo.ActiveChainTipId
+	step := uint64(1)
+
+	for {
+		locator.Add(currentId)
+
+		if height == 0 {
+			break
+		}
+
+		if locator.Length() >= 10 {
+			step *= 2
+		}
+
+		if step > height {
+			height = 0
+		} else {
+			height = height - step
+		}
+
+		var prevId []byte
+		err = repo.db.Table("blocks").
+			Select("block_header_id").
+			Where("in_active_chain = ?", true).
+			Where("height = ?", height).
+			Row().Scan(&prevId)
+
+		if err != nil {
+			return nil, err
+		}
+
+		currentId = slices.Clone(prevId)
+	}
+
+	return locator, nil
+}
+
 func (repo *BlockRepository) GetBlockLocator(startBlockId []byte) (*structures.BlockLocator, error) {
 	locator := structures.NewBlockLocator()
 
 	var height uint64
-	err := repo.db.Table("blocks").Select("height").Where("block_header_id = ?", startBlockId).First(&height).Error
+	err := repo.db.Table("blocks").
+		Select("height").
+		Where("block_header_id = ?", startBlockId).
+		Pluck("height", &height).Error
 
 	if err != nil {
 		return nil, err
@@ -143,12 +220,19 @@ func (repo *BlockRepository) GetBlockLocator(startBlockId []byte) (*structures.B
 			step *= 2
 		}
 
-		toHeight := max(height-step, 0)
+		toHeight := height - step
+		if step > height {
+			toHeight = 0
+		}
 
 		for height > toHeight {
 			var prevId []byte
 
-			err = repo.db.Table("block_headers").Select("previous_block_header_id").Where("id = ?", currentId).First(&prevId).Error
+			err = repo.db.Table("block_headers").
+				Select("previous_block_header_id").
+				Where("id = ?", currentId).
+				Row().Scan(&prevId)
+
 			if err != nil {
 				return nil, err
 			}
@@ -159,6 +243,39 @@ func (repo *BlockRepository) GetBlockLocator(startBlockId []byte) (*structures.B
 	}
 
 	return locator, nil
+}
+
+func (repo *BlockRepository) GetBlock(blockId []byte) (*models.Block, error) {
+	var blockDB db_models.BlockDB
+	err := repo.db.Preload("BlockHeader").
+		Where("block_header_id = ?", blockId).
+		Find(&blockDB).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	var txsDB []db_models.TransactionBlockDB
+	err = repo.db.Preload("Transaction").
+		Where("block_header_id = ?", blockId).
+		Order("block_header_id, `order` ASC").
+		Find(&txsDB).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	txs := make([]*models.Transaction, len(txsDB))
+	for idx, txDB := range txsDB {
+		txs[idx] = mapping.TransactionDBToTransaction(&txDB.Transaction)
+	}
+
+	block := &models.Block{
+		Header:       *mapping.BlockHeaderDBToBlockHeader(&blockDB.BlockHeader),
+		Transactions: txs,
+	}
+
+	return block, nil
 }
 
 func (repo *BlockRepository) GetBlocks(ids *structures.BytesSet) ([]*models.Block, error) {
@@ -325,7 +442,7 @@ func (*BlockRepository) GenesisBlock() *models.Block {
 		PreviousBlockId: nil,
 		MerkleRoot:      make([]byte, 32),
 		Timestamp:       time.Date(2025, time.March, 30, 0, 0, 0, 0, time.UTC).Unix(),
-		NBits:           uint32(0x1d00ffff),
+		NBits:           difficulty.MINIMUM_DIFFICULTY,
 		Nonce:           0,
 		MinerPublicKey:  make([]byte, 33),
 	}

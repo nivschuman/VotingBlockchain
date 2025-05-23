@@ -26,6 +26,56 @@ func InitializeGlobalTransactionRepository(db *gorm.DB) error {
 	return nil
 }
 
+func (repo *TransactionRepository) TransactionsValidInChain(chainTipId []byte, transactions []*models.Transaction) (bool, error) {
+	currentId := chainTipId
+
+	voterPublicKeys := structures.NewBytesSet()
+	for _, tx := range transactions {
+		voterPublicKeys.Add(tx.VoterPublicKey)
+	}
+
+	for currentId != nil {
+		var count int64
+		err := repo.db.Table("transactions_blocks").
+			Joins("JOIN transactions ON transactions_blocks.transaction_id = transactions.id").
+			Where("transactions_blocks.block_header_id = ?", currentId).
+			Where("transactions.voter_public_key IN ?", voterPublicKeys.ToBytesSlice()).
+			Count(&count).Error
+
+		if err != nil {
+			return false, err
+		}
+
+		if count > 0 {
+			return false, nil
+		}
+
+		var prevId []byte
+		err = repo.db.Table("block_headers").
+			Select("previous_block_header_id").
+			Where("id = ?", currentId).Row().Scan(&prevId)
+
+		if err != nil {
+			return false, err
+		}
+
+		currentId = prevId
+	}
+
+	return true, nil
+}
+
+func (repo *TransactionRepository) GetTransaction(txId []byte) (*models.Transaction, error) {
+	var txDB db_models.TransactionDB
+	result := repo.db.Where("id = ?", txId).First(&txDB)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return mapping.TransactionDBToTransaction(&txDB), nil
+}
+
 func (repo *TransactionRepository) GetTransactions(ids *structures.BytesSet) ([]*models.Transaction, error) {
 	var transactionsDB []db_models.TransactionDB
 	result := repo.db.Where("id IN (?)", ids.ToBytesSlice()).Find(&transactionsDB)
@@ -94,10 +144,20 @@ func (repo *TransactionRepository) InsertIfNotExists(transaction *models.Transac
 func (repo *TransactionRepository) GetMempool(limit int) ([]*models.Transaction, error) {
 	var transactionsDB []*db_models.TransactionDB
 
-	query := repo.db.Table("transactions").
+	subquery := repo.db.
+		Table("transactions AS t").
+		Select("1").
+		Joins("JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ?", true).
+		Where("t.voter_public_key = transactions.voter_public_key")
+
+	query := repo.db.
+		Table("transactions").
 		Joins("LEFT JOIN transactions_blocks ON transactions.id = transactions_blocks.transaction_id").
 		Joins("LEFT JOIN blocks ON transactions_blocks.block_header_id = blocks.block_header_id").
 		Where("blocks.in_active_chain = ? OR blocks.in_active_chain IS NULL", false).
+		Where("NOT EXISTS (?)", subquery).
 		Limit(limit)
 
 	err := query.Find(&transactionsDB).Error
@@ -115,29 +175,9 @@ func (repo *TransactionRepository) GetMempool(limit int) ([]*models.Transaction,
 	return transactions, nil
 }
 
-func (repo *TransactionRepository) TransactionIsValid(transaction *models.Transaction) (bool, error) {
-	valid, err := transaction.GovernmentSignatureIsValid()
-
-	if err != nil {
-		return false, err
-	}
-
-	if !valid {
-		return false, nil
-	}
-
-	valid, err = transaction.SignatureIsValid()
-
-	if err != nil {
-		return false, err
-	}
-
-	if !valid {
-		return false, nil
-	}
-
+func (repo *TransactionRepository) TransactionValidInActiveChain(transaction *models.Transaction) (bool, error) {
 	var count int64
-	err = repo.db.Table("transactions t").
+	err := repo.db.Table("transactions t").
 		Joins("JOIN transactions_blocks tb ON tb.transaction_id = t.id").
 		Joins("JOIN blocks b ON b.block_header_id = tb.block_header_id").
 		Where("t.voter_public_key = ? AND b.in_active_chain = ?", transaction.VoterPublicKey, true).

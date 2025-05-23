@@ -7,6 +7,7 @@ import (
 	hash "github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
@@ -22,7 +23,7 @@ func CreateTestBlock(previousBlockId []byte, transactions []*models.Transaction)
 		PreviousBlockId: previousBlockId,
 		MerkleRoot:      make([]byte, 32),
 		Timestamp:       time.Now().Unix(),
-		NBits:           uint32(0x1d00ffff),
+		NBits:           uint32(difficulty.MINIMUM_DIFFICULTY),
 		Nonce:           0,
 		MinerPublicKey:  minerKeyPair.PublicKey.AsBytes(),
 	}

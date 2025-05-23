@@ -58,7 +58,7 @@ func TestGetMempool(t *testing.T) {
 	}
 }
 
-func TestTransactionIsValid_WhenTransactionIsInvalid(t *testing.T) {
+func TestTransactionValidInActiveChain_WhenTransactionIsInvalid(t *testing.T) {
 	inits.ResetTestDatabase()
 	_, blocks, keyPairs, err := inits.CreateTestData(4, 2)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestTransactionIsValid_WhenTransactionIsInvalid(t *testing.T) {
 
 	tx.Signature = signature
 
-	isValid, err := repositories.GlobalTransactionRepository.TransactionIsValid(tx)
+	isValid, err := repositories.GlobalTransactionRepository.TransactionValidInActiveChain(tx)
 
 	if err != nil {
 		t.Fatalf("failed to check if transaction is valid: %v", err)
@@ -95,7 +95,7 @@ func TestTransactionIsValid_WhenTransactionIsInvalid(t *testing.T) {
 	}
 }
 
-func TestTransactionIsValid_WhenTransactionIsValid(t *testing.T) {
+func TestTransactionValidInActiveChain_WhenTransactionIsValid(t *testing.T) {
 	inits.ResetTestDatabase()
 	govKeyPair, _, _, err := inits.CreateTestData(4, 2)
 
@@ -109,7 +109,7 @@ func TestTransactionIsValid_WhenTransactionIsValid(t *testing.T) {
 		t.Fatalf("failed to create test transactions: %v", err)
 	}
 
-	isValid, err := repositories.GlobalTransactionRepository.TransactionIsValid(tx)
+	isValid, err := repositories.GlobalTransactionRepository.TransactionValidInActiveChain(tx)
 
 	if err != nil {
 		t.Fatalf("failed to check if transaction is valid: %v", err)
@@ -117,6 +117,34 @@ func TestTransactionIsValid_WhenTransactionIsValid(t *testing.T) {
 
 	if !isValid {
 		t.Fatalf("transaction was determined as invalid")
+	}
+}
+
+func TestTransactionsValidInChain_WhenTransactionsAreValid(t *testing.T) {
+	inits.ResetTestDatabase()
+	govKeyPair, blocks, _, err := inits.CreateTestData(4, 2)
+
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	tx1, _, err := inits.CreateTestTransaction(govKeyPair)
+
+	if err != nil {
+		t.Fatalf("failed to create test transaction: %v", err)
+	}
+
+	tx2 := blocks[len(blocks)-1].Transactions[0]
+
+	txs := []*models.Transaction{tx1, tx2}
+	isValid, err := repositories.GlobalTransactionRepository.TransactionsValidInChain(blocks[0].Header.Id, txs)
+
+	if err != nil {
+		t.Fatalf("failed to check if transactions are valid: %v", err)
+	}
+
+	if !isValid {
+		t.Fatalf("transactions were determined as invalid")
 	}
 }
 

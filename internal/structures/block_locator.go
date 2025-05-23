@@ -12,6 +12,10 @@ func NewBlockLocator() *BlockLocator {
 	}
 }
 
+func (locator *BlockLocator) Get(idx int) []byte {
+	return locator.ids[idx]
+}
+
 func (locator *BlockLocator) Add(blockId []byte) {
 	locator.ids = append(locator.ids, blockId)
 }

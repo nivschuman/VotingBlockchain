@@ -27,7 +27,8 @@ type Network struct {
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
 
-	MemPool *structures.MemPool
+	orphanBlocks      *structures.BytesMap[*data_models.Block]
+	orphanBlocksMutex sync.RWMutex
 
 	stopChannel chan bool      // Channel to signal shutdown
 	wg          sync.WaitGroup // WaitGroup to track running goroutines
@@ -43,8 +44,7 @@ func NewNetwork() *Network {
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
-
-	network.MemPool = structures.NewMemPool()
+	network.orphanBlocks = structures.NewBytesMap[*data_models.Block]()
 
 	return network
 }
@@ -315,7 +315,19 @@ func (network *Network) processTx(fromPeer *peer.Peer, message *models.Message) 
 		return
 	}
 
-	valid, err := repos.GlobalTransactionRepository.TransactionIsValid(transaction)
+	valid, err := transaction.IsValid()
+
+	if err != nil {
+		log.Printf("Failed to validate transaction from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !valid {
+		log.Printf("Received invalid transaction from %s", fromPeer.String())
+		return
+	}
+
+	valid, err = repos.GlobalTransactionRepository.TransactionValidInActiveChain(transaction)
 
 	if err != nil {
 		log.Printf("Failed validating transaction from %s: %v", fromPeer.String(), err)
@@ -462,6 +474,7 @@ func (network *Network) processGetBlocks(fromPeer *peer.Peer, message *models.Me
 }
 
 func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Message) {
+	//Parse block
 	block, err := data_models.BlockFromBytes(message.Payload)
 
 	if err != nil {
@@ -469,7 +482,76 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
-	isValid, err := network.blockIsValid(block)
+	//Check if already have block
+	if network.orphanBlocks.ContainsKey(block.Header.Id) {
+		return
+	}
+
+	exists, err := repos.GlobalBlockRepository.HaveBlock(block.Header.Id)
+
+	if err != nil {
+		log.Printf("Failed to check if block exists from %s is orphan: %v", fromPeer.String(), err)
+		return
+	}
+
+	if exists {
+		return
+	}
+
+	//Check if block is orphan
+	isOrphan, err := repos.GlobalBlockRepository.BlockIsOrphan(block)
+
+	if err != nil {
+		log.Printf("Failed to check if block from %s is orphan: %v", fromPeer.String(), err)
+	}
+
+	//Check block
+	isValid, err := network.checkBlock(block)
+
+	if err != nil {
+		log.Printf("Failed to check block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	if !isValid {
+		log.Printf("Received invalid block from %s", fromPeer.String())
+		return
+	}
+
+	//No further processing for orphan
+	if isOrphan {
+		network.orphanBlocksMutex.Lock()
+		network.orphanBlocks.Put(block.Header.Id, block)
+		network.orphanBlocksMutex.Unlock()
+
+		//Ask for block
+		blockLocator, err := repos.GlobalBlockRepository.GetActiveChainBlockLocator()
+
+		if err != nil {
+			log.Printf("Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		orphanRoot := network.getOrphanRoot(block)
+		getBlocks := models.NewGetBlocks(blockLocator, orphanRoot.Header.Id)
+
+		msg, err := models.NewGetBlocksMessage(getBlocks)
+		if err != nil {
+			log.Printf("Failed to make get blocks message for %s: %v", fromPeer.String(), err)
+			return
+		}
+
+		select {
+		case <-fromPeer.StopChannel:
+			return
+		case fromPeer.SendChannel <- *msg:
+		}
+
+		return
+	}
+
+	//Validate block
+	isValid, err = network.validateBlock(block)
 
 	if err != nil {
 		log.Printf("Failed to validate block from %s: %v", fromPeer.String(), err)
@@ -481,15 +563,88 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
-	//TBD check if block is orphan block and process it accordingly
+	//Insert block
+	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
+
+	if err != nil {
+		log.Printf("Failed to insert block from %s: %v", fromPeer.String(), err)
+		return
+	}
+
+	//Process dependent orphans recursively
+	queue := []*data_models.Block{block}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		children := network.getConnectedOrphans(current.Header.Id)
+
+		for _, child := range children {
+			isValid, err := network.validateBlock(child)
+
+			if err != nil {
+				log.Printf("Failed to validate orphan child %x: %v", child.Header.Id, err)
+				continue
+			}
+
+			if !isValid {
+				log.Printf("Invalid orphan child block %x", child.Header.Id)
+				continue
+			}
+
+			err = repos.GlobalBlockRepository.InsertIfNotExists(child)
+
+			if err != nil {
+				log.Printf("Failed to insert orphan child block %x: %v", child.Header.Id, err)
+				continue
+			}
+
+			network.orphanBlocksMutex.Lock()
+			network.orphanBlocks.Remove(child.Header.Id)
+			network.orphanBlocksMutex.Unlock()
+
+			queue = append(queue, child)
+		}
+	}
 }
 
-func (network *Network) blockIsValid(block *data_models.Block) (bool, error) {
+func (network *Network) checkBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be less than the network adjusted time +2 hours.
 	if block.Header.Timestamp > network.NetworkTime()+2*60*60 {
 		return false, nil
 	}
 
+	//Proof of Work must be valid
+	if !block.Header.IsHashBelowTarget() {
+		return false, nil
+	}
+
+	//NBits must not be below minimum work
+	target := difficulty.GetTargetFromNBits(block.Header.NBits)
+	if target.Cmp(difficulty.GetTargetFromNBits(difficulty.MINIMUM_DIFFICULTY)) > 0 {
+		return false, nil
+	}
+
+	//Block transactions must be valid
+	for _, tx := range block.Transactions {
+		valid, err := tx.IsValid()
+
+		if err != nil {
+			return false, err
+		}
+
+		if !valid {
+			return false, nil
+		}
+	}
+
+	//TBD check merkle root
+
+	return true, nil
+}
+
+func (network *Network) validateBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be greater than the median time of the last 11 blocks
 	medianTimePast, err := repos.GlobalBlockRepository.GetMedianTimePast(block.Header.PreviousBlockId, 11)
 	if err != nil {
@@ -500,22 +655,50 @@ func (network *Network) blockIsValid(block *data_models.Block) (bool, error) {
 		return false, nil
 	}
 
-	//TBD check merkle root
-
-	//TBD validate transactions on this blocks chain
-
-	//Proof of Work must be valid
-	if !block.Header.IsHashBelowTarget() {
-		return false, nil
+	//Validate transactions on this blocks chain
+	valid, err := repos.GlobalTransactionRepository.TransactionsValidInChain(block.Header.PreviousBlockId, block.Transactions)
+	if err != nil {
+		return false, err
 	}
 
-	//NBits must not be below minimum work
-	target := difficulty.GetTargetFromNBits(block.Header.NBits)
-	if target.Cmp(difficulty.GetTargetFromNBits(0x1d00ffff)) > 0 {
+	if !valid {
 		return false, nil
 	}
 
 	//TBD make sure that difficulty fits network difficulty
 
 	return true, nil
+}
+
+func (network *Network) getConnectedOrphans(blockId []byte) []*data_models.Block {
+	blocks := make([]*data_models.Block, 0)
+
+	network.orphanBlocksMutex.RLock()
+	orphanBlocks := network.orphanBlocks.Values()
+	network.orphanBlocksMutex.RUnlock()
+
+	for _, orphanBlock := range orphanBlocks {
+		if bytes.Equal(orphanBlock.Header.PreviousBlockId, blockId) {
+			blocks = append(blocks, orphanBlock)
+		}
+	}
+
+	return blocks
+}
+
+func (network *Network) getOrphanRoot(orphanBlock *data_models.Block) *data_models.Block {
+	network.orphanBlocksMutex.RLock()
+	for {
+		prevId := orphanBlock.Header.PreviousBlockId
+
+		orphanParent, exists := network.orphanBlocks.Get(prevId)
+		if !exists {
+			break
+		}
+
+		orphanBlock = orphanParent
+	}
+	network.orphanBlocksMutex.RUnlock()
+
+	return orphanBlock
 }
