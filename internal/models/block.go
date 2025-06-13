@@ -122,7 +122,7 @@ func BlockFromBytes(b []byte) (*Block, error) {
 	buf := bytes.NewReader(b)
 	block := &Block{}
 
-	headerBytes := make([]byte, 117)
+	headerBytes := make([]byte, 121)
 	if _, err := buf.Read(headerBytes); err != nil {
 		return nil, err
 	}
