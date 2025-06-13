@@ -11,7 +11,7 @@ type BlockHeaderDB struct {
 	MerkleRoot     []byte `gorm:"column:merkle_root;not null"`
 	Timestamp      int64  `gorm:"column:timestamp;not null"`
 	NBits          uint32 `gorm:"column:nbits;not null"`
-	Nonce          uint32 `gorm:"column:nonce;not null"`
+	Nonce          uint64 `gorm:"column:nonce;not null"`
 	MinerPublicKey []byte `gorm:"column:miner_public_key;not null"`
 
 	PreviousBlockHeaderId *[]byte        `gorm:"column:previous_block_header_id"`

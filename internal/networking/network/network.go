@@ -30,8 +30,8 @@ type Network struct {
 	orphanBlocks      *structures.BytesMap[*data_models.Block]
 	orphanBlocksMutex sync.RWMutex
 
-	stopChannel chan bool      // Channel to signal shutdown
-	wg          sync.WaitGroup // WaitGroup to track running goroutines
+	stopChannel chan bool
+	wg          sync.WaitGroup
 }
 
 func NewNetwork() *Network {
@@ -77,22 +77,6 @@ func (network *Network) DialPeers() {
 	//TBD must go over all peers in database and dial them...
 }
 
-func (network *Network) BroadcastMessage(msg *models.Message) {
-	network.PeersMutex.RLock()
-
-	for _, peer := range network.Peers {
-		if peer.CompletedHandshake() && !peer.Remove && !peer.Disconnected {
-			select {
-			case <-peer.StopChannel:
-				continue
-			case peer.SendChannel <- *msg:
-			}
-		}
-	}
-
-	network.PeersMutex.RUnlock()
-}
-
 func (network *Network) RemovePeers() {
 	defer network.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
@@ -136,11 +120,13 @@ func (network *Network) RemovePeer(peer *peer.Peer) {
 }
 
 func (network *Network) NetworkTime() int64 {
+	network.PeersMutex.RLock()
 	offsets := make([]int64, 0, len(network.Peers))
 
-	network.PeersMutex.RLock()
 	for _, peer := range network.Peers {
-		offsets = append(offsets, peer.PeerDetails.TimeOffset)
+		if peer.CompletedHandshake() {
+			offsets = append(offsets, peer.PeerDetails.TimeOffset)
+		}
 	}
 	network.PeersMutex.RUnlock()
 
@@ -179,57 +165,16 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	network.Peers[conn.RemoteAddr().String()] = p
 	network.PeersMutex.Unlock()
 
-	p.StartProcessing(network.processMessage)
-}
+	p.AddCommandHandler(models.CommandPing, network.processPing)
+	p.AddCommandHandler(models.CommandPong, network.processPong)
+	p.AddCommandHandler(models.CommandBlock, network.processBlock)
+	p.AddCommandHandler(models.CommandGetData, network.processGetData)
+	p.AddCommandHandler(models.CommandInv, network.processInv)
+	p.AddCommandHandler(models.CommandMemPool, network.processMemPool)
+	p.AddCommandHandler(models.CommandTx, network.processTx)
+	p.AddCommandHandler(models.CommandGetBlocks, network.processGetBlocks)
 
-func (network *Network) processMessage(fromPeer *peer.Peer, message *models.Message) {
-	//ping
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandPing[:]) {
-		network.processPing(fromPeer, message)
-		return
-	}
-
-	//pong
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandPong[:]) {
-		network.processPong(fromPeer, message)
-		return
-	}
-
-	//inv
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandInv[:]) {
-		network.processInv(fromPeer, message)
-		return
-	}
-
-	//getdata
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandGetData[:]) {
-		network.processGetData(fromPeer, message)
-		return
-	}
-
-	//tx
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandTx[:]) {
-		network.processTx(fromPeer, message)
-		return
-	}
-
-	//mempool
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandMemPool[:]) {
-		network.processMemPool(fromPeer, message)
-		return
-	}
-
-	//getblocks
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandGetBlocks[:]) {
-		network.processGetBlocks(fromPeer, message)
-		return
-	}
-
-	//block
-	if bytes.Equal(message.MessageHeader.Command[:], models.CommandBlock[:]) {
-		network.processBlock(fromPeer, message)
-		return
-	}
+	p.StartProcessing()
 }
 
 func (network *Network) processPing(fromPeer *peer.Peer, message *models.Message) {
@@ -482,6 +427,9 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
+	//Calculate id (may have received fake one)
+	block.Header.SetId()
+
 	//Check if already have block
 	if network.orphanBlocks.ContainsKey(block.Header.Id) {
 		return
@@ -571,6 +519,17 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
+	//Send block to peers
+	network.PeersMutex.RLock()
+	for _, peer := range network.Peers {
+		if peer != fromPeer {
+			peer.InventoryToSendMutex.Lock()
+			peer.InventoryToSend.AddItem(models.MSG_BLOCK, block.Header.Id)
+			peer.InventoryToSendMutex.Unlock()
+		}
+	}
+	network.PeersMutex.RUnlock()
+
 	//Process dependent orphans recursively
 	queue := []*data_models.Block{block}
 
@@ -599,6 +558,16 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 				log.Printf("Failed to insert orphan child block %x: %v", child.Header.Id, err)
 				continue
 			}
+
+			network.PeersMutex.RLock()
+			for _, peer := range network.Peers {
+				if peer != fromPeer {
+					peer.InventoryToSendMutex.Lock()
+					peer.InventoryToSend.AddItem(models.MSG_BLOCK, child.Header.Id)
+					peer.InventoryToSendMutex.Unlock()
+				}
+			}
+			network.PeersMutex.RUnlock()
 
 			network.orphanBlocksMutex.Lock()
 			network.orphanBlocks.Remove(child.Header.Id)
@@ -665,7 +634,15 @@ func (network *Network) validateBlock(block *data_models.Block) (bool, error) {
 		return false, nil
 	}
 
-	//TBD make sure that difficulty fits network difficulty
+	//Validate work
+	requiredNBits, err := repos.GlobalBlockRepository.GetNextWorkRequired(block.Header.PreviousBlockId)
+	if err != nil {
+		return false, err
+	}
+
+	if block.Header.NBits != requiredNBits {
+		return false, nil
+	}
 
 	return true, nil
 }

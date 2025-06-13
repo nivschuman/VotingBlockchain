@@ -13,7 +13,7 @@ import (
 )
 
 func SetupTests() {
-	difficulty.MINIMUM_DIFFICULTY = uint32(0x207fffff)
+	setupConstants()
 
 	err := os.Setenv("APP_ENV", "test")
 
@@ -79,6 +79,15 @@ func CloseTestDatabase() {
 	if err != nil {
 		log.Fatalf("Failed to close test database: %v", err)
 	}
+}
+
+func setupConstants() {
+	difficulty.MINIMUM_DIFFICULTY = uint32(0x207fffff)
+	difficulty.TARGET_TIMESPAN = int64(10 * 60)
+	difficulty.TARGET_SPACING = int64(1 * 60)
+	difficulty.INTERVAL = difficulty.TARGET_TIMESPAN / difficulty.TARGET_SPACING
+	difficulty.MIN_TIMESPAN = difficulty.TARGET_TIMESPAN / 4
+	difficulty.MAX_TIMESPAN = difficulty.TARGET_TIMESPAN * 4
 }
 
 func initializeRepositories() error {

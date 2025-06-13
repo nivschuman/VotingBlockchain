@@ -19,6 +19,15 @@ func (m *BytesMap[V]) Get(key []byte) (V, bool) {
 	return val, exists
 }
 
+func (m *BytesMap[V]) GetOrDefault(key []byte, def V) V {
+	val, exists := m.data[string(key)]
+	if !exists {
+		return def
+	}
+
+	return val
+}
+
 func (m *BytesMap[V]) ContainsKey(key []byte) bool {
 	_, exists := m.data[string(key)]
 	return exists

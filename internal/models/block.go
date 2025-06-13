@@ -16,7 +16,7 @@ type BlockHeader struct {
 	MerkleRoot      []byte //merkle root of merkle tree of block content, 32 bytes
 	Timestamp       int64  //unix timestamp of when the miner started hashing the header, 8 bytes
 	NBits           uint32 //encoded version of target threshold this blocks header has must be less than or equal to, 4 bytes
-	Nonce           uint32 //arbitrary numbers miners change in order to produce hash less than or equal to the target threshold, 4 bytes
+	Nonce           uint64 //arbitrary numbers miners change in order to produce hash less than or equal to the target threshold, 8 bytes
 	MinerPublicKey  []byte //public key of miner that made the block, marshal compressed, 33 bytes
 }
 
@@ -122,7 +122,7 @@ func BlockFromBytes(b []byte) (*Block, error) {
 	buf := bytes.NewReader(b)
 	block := &Block{}
 
-	headerBytes := make([]byte, 117)
+	headerBytes := make([]byte, 121)
 	if _, err := buf.Read(headerBytes); err != nil {
 		return nil, err
 	}
