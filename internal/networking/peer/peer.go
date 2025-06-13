@@ -13,10 +13,13 @@ import (
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	checksum "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
+	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
 )
 
 const PING_INTERVAL = 2 * time.Minute
 const SEND_DATA_INTERVAL = 100 * time.Second
+
+type CommandHandler func(peer *Peer, message *models.Message)
 
 type Peer struct {
 	Conn net.Conn
@@ -25,15 +28,17 @@ type Peer struct {
 	PeerDetails      *PeerDetails
 	PingPongDetails  *PingPongDetails
 
-	SendChannel    chan<- models.Message
-	StopChannel    <-chan bool
-	MessageHandler func(*Peer, *models.Message)
+	SendChannel chan<- models.Message
+	StopChannel <-chan bool
 
 	Remove       bool
 	Disconnected bool
 
 	InventoryToSendMutex sync.Mutex
 	InventoryToSend      *models.Inv
+
+	commandHandlersMutex sync.Mutex
+	commandHandlers      *structures.BytesMap[[]CommandHandler]
 
 	reader *connection.Reader
 	sender *connection.Sender
@@ -76,6 +81,7 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 		SendChannel:      sendChannel,
 		StopChannel:      stopChannel,
 		InventoryToSend:  models.NewInv(),
+		commandHandlers:  structures.NewBytesMap[[]CommandHandler](),
 		reader:           reader,
 		sender:           sender,
 		readChannel:      readChannel,
@@ -93,8 +99,7 @@ func (peer *Peer) StartPeer() {
 	go peer.SendMessages()
 }
 
-func (peer *Peer) StartProcessing(messageHandler func(peer *Peer, message *models.Message)) {
-	peer.MessageHandler = messageHandler
+func (peer *Peer) StartProcessing() {
 	go peer.ProcessMessages()
 	go peer.SendData()
 }
@@ -178,9 +183,28 @@ func (peer *Peer) ProcessMessages() {
 		case <-peer.StopChannel:
 			return
 		case message := <-peer.readChannel:
-			peer.MessageHandler(peer, &message)
+			peer.commandHandlersMutex.Lock()
+			handlers := peer.commandHandlers.GetOrDefault(message.MessageHeader.Command[:], make([]CommandHandler, 0))
+			for _, handler := range handlers {
+				handler(peer, &message)
+			}
+			peer.commandHandlersMutex.Unlock()
 		}
 	}
+}
+
+func (peer *Peer) AddCommandHandler(command [12]byte, commandHandler CommandHandler) {
+	peer.commandHandlersMutex.Lock()
+	defer peer.commandHandlersMutex.Unlock()
+
+	handlers, exists := peer.commandHandlers.Get(command[:])
+
+	if exists {
+		peer.commandHandlers.Put(command[:], append(handlers, commandHandler))
+		return
+	}
+
+	peer.commandHandlers.Put(command[:], []CommandHandler{commandHandler})
 }
 
 func (peer *Peer) Disconnect() {

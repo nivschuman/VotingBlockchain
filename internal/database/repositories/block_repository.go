@@ -39,6 +39,61 @@ func InitializeGlobalBlockRepository(db *gorm.DB) error {
 	return nil
 }
 
+func (repo *BlockRepository) GetNextWorkRequired(lastBlockId []byte) (uint32, error) {
+	if lastBlockId == nil {
+		return difficulty.MINIMUM_DIFFICULTY, nil
+	}
+
+	var lastBlockDB db_models.BlockDB
+	err := repo.db.Preload("BlockHeader").
+		Where("block_header_id = ?", lastBlockId).
+		First(&lastBlockDB).Error
+
+	if err != nil {
+		return difficulty.MINIMUM_DIFFICULTY, err
+	}
+
+	if (lastBlockDB.Height+1)%uint64(difficulty.INTERVAL) != 0 {
+		return lastBlockDB.BlockHeader.NBits, nil
+	}
+
+	var firstBlockDB db_models.BlockHeaderDB
+	currentId := slices.Clone(lastBlockDB.BlockHeaderId)
+
+	for range difficulty.INTERVAL {
+		err = repo.db.Where("id = ?", currentId).First(&firstBlockDB).Error
+		if err != nil {
+			return difficulty.MINIMUM_DIFFICULTY, err
+		}
+
+		currentId = slices.Clone(firstBlockDB.Id)
+
+		if currentId == nil {
+			break
+		}
+	}
+
+	actualTimespan := lastBlockDB.BlockHeader.Timestamp - firstBlockDB.Timestamp
+
+	if actualTimespan < difficulty.MIN_TIMESPAN {
+		actualTimespan = difficulty.TARGET_TIMESPAN / 4
+	}
+
+	if actualTimespan > difficulty.MAX_TIMESPAN {
+		actualTimespan = difficulty.TARGET_TIMESPAN * 4
+	}
+
+	target := difficulty.GetTargetFromNBits(lastBlockDB.BlockHeader.NBits)
+	target.Mul(target, big.NewInt(actualTimespan))
+	target.Div(target, big.NewInt(difficulty.TARGET_TIMESPAN))
+
+	if target.Cmp(difficulty.GetTargetFromNBits(difficulty.MINIMUM_DIFFICULTY)) > 0 {
+		return difficulty.MINIMUM_DIFFICULTY, nil
+	}
+
+	return difficulty.TargetToNBits(target), nil
+}
+
 func (repo *BlockRepository) HaveBlock(blockId []byte) (bool, error) {
 	var count int64
 	result := repo.db.Table("block_headers").Where("block_headers.id = ?", blockId).Count(&count)
@@ -443,7 +498,7 @@ func (*BlockRepository) GenesisBlock() *models.Block {
 		MerkleRoot:      make([]byte, 32),
 		Timestamp:       time.Date(2025, time.March, 30, 0, 0, 0, 0, time.UTC).Unix(),
 		NBits:           difficulty.MINIMUM_DIFFICULTY,
-		Nonce:           0,
+		Nonce:           50,
 		MinerPublicKey:  make([]byte, 33),
 	}
 

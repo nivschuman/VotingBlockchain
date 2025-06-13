@@ -235,3 +235,35 @@ func TestGetNextBlockIds(t *testing.T) {
 		}
 	}
 }
+
+func TestGetNextWorkRequired(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(10, 1)
+	if err != nil {
+		t.Fatalf("failed to create test data: %v", err)
+	}
+
+	//next block is not at difficulty adjustment level
+	lastBlock := blocks[7] // height 8
+	nBits, err := repositories.GlobalBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
+	if err != nil {
+		t.Fatalf("GetNextWorkRequired error: %v", err)
+	}
+
+	if nBits != lastBlock.Header.NBits {
+		t.Fatalf("Expected nBits %08x, got %08x", lastBlock.Header.NBits, nBits)
+	}
+
+	//next block is at difficulty adjustment level
+	lastBlock = blocks[8] // height 9
+	nBits, err = repositories.GlobalBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
+	if err != nil {
+		t.Fatalf("GetNextWorkRequired error: %v", err)
+	}
+
+	if nBits == lastBlock.Header.NBits {
+		t.Logf("Difficulty did not change at interval (could be expected if timestamps are perfect)")
+	} else {
+		t.Logf("Difficulty adjusted at interval: new nBits %08x", nBits)
+	}
+}

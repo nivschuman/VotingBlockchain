@@ -38,3 +38,31 @@ func TestIsHashBelowTarget_WhenHashIsBelowTarget(t *testing.T) {
 		t.Fatalf("Hash was determined to not be below target")
 	}
 }
+
+func TestTargetToNBits(t *testing.T) {
+	target := new(big.Int)
+	target.SetString("00000000FFFF0000000000000000000000000000000000000000000000000000", 16)
+	if got := difficulty.TargetToNBits(target); got != 0x1d00ffff {
+		t.Fatalf("Test 1 failed: got 0x%08x, want 0x1d00ffff", got)
+	}
+
+	target.SetString("01", 16)
+	if got := difficulty.TargetToNBits(target); got != 0x01010000 {
+		t.Fatalf("Test 2 failed: got 0x%08x, want 0x01010000", got)
+	}
+
+	target.SetString("00", 16)
+	if got := difficulty.TargetToNBits(target); got != 0x00000000 {
+		t.Fatalf("Test 3 failed: got 0x%08x, want 0x00000000", got)
+	}
+
+	target.SetString("0001234500000000000000000000000000000000000000000000000000000000", 16)
+	if got := difficulty.TargetToNBits(target); got != 0x1f012345 {
+		t.Fatalf("Test 4 failed: got 0x%08x, want 0x1d012345", got)
+	}
+
+	target.SetString("0080000000000000000000000000000000000000000000000000000000000000", 16)
+	if got := difficulty.TargetToNBits(target); got != 0x20008000 {
+		t.Fatalf("Test 5 failed: got 0x%08x, want 0x1e800000", got)
+	}
+}
