@@ -12,6 +12,7 @@ type Config struct {
 	NetworkConfig    NetworkConfig    `yaml:"network"`
 	NodeConfig       NodeConfig       `yaml:"node"`
 	GovernmentConfig GovernmentConfig `yaml:"government"`
+	MinerConfig      MinerConfig      `yaml:"miner"`
 }
 
 var GlobalConfig *Config = nil
