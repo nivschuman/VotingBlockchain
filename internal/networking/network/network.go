@@ -10,7 +10,8 @@ import (
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
-	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
+	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
+	mining "github.com/nivschuman/VotingBlockchain/internal/mining"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	connectors "github.com/nivschuman/VotingBlockchain/internal/networking/connectors"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -26,6 +27,7 @@ type Network struct {
 	Dialer     *connectors.Dialer
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
+	Miner      *mining.Miner
 
 	orphanBlocks      *structures.BytesMap[*data_models.Block]
 	orphanBlocksMutex sync.RWMutex
@@ -43,6 +45,10 @@ func NewNetwork() *Network {
 	network.Listener = connectors.NewListener(ip, port, network.handleConnection)
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
+
+	network.Miner = mining.NewMiner()
+	network.Miner.AddHandler(network.processMinedBlock)
+
 	network.stopChannel = make(chan bool)
 	network.orphanBlocks = structures.NewBytesMap[*data_models.Block]()
 
@@ -51,15 +57,19 @@ func NewNetwork() *Network {
 
 func (network *Network) StartNetwork() {
 	network.Listener.Listen(&network.wg)
-
 	network.wg.Add(2)
 	go network.DialPeers()
 	go network.RemovePeers()
 }
 
+func (network *Network) StartMiner() {
+	network.Miner.StartMiner(&network.wg)
+}
+
 func (network *Network) StopNetwork() {
 	close(network.stopChannel)
 	network.Listener.StopListening()
+	network.Miner.StopMiner()
 
 	network.PeersMutex.Lock()
 	for _, peer := range network.Peers {
@@ -427,9 +437,6 @@ func (network *Network) processBlock(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
-	//Calculate id (may have received fake one)
-	block.Header.SetId()
-
 	//Check if already have block
 	if network.orphanBlocks.ContainsKey(block.Header.Id) {
 		return
@@ -678,4 +685,49 @@ func (network *Network) getOrphanRoot(orphanBlock *data_models.Block) *data_mode
 	network.orphanBlocksMutex.RUnlock()
 
 	return orphanBlock
+}
+
+func (network *Network) processMinedBlock(block *data_models.Block) {
+	//Check block
+	isValid, err := network.checkBlock(block)
+
+	if err != nil {
+		log.Printf("Failed to check block mined block: %v", err)
+		return
+	}
+
+	if !isValid {
+		log.Print("Received invalid block from miner")
+		return
+	}
+
+	//Validate block
+	isValid, err = network.validateBlock(block)
+
+	if err != nil {
+		log.Printf("Failed to validate block miner: %v", err)
+		return
+	}
+
+	if !isValid {
+		log.Print("Received invalid block from miner")
+		return
+	}
+
+	//Insert block
+	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
+
+	if err != nil {
+		log.Printf("Failed to insert block from miner: %v", err)
+		return
+	}
+
+	//Send block to peers
+	network.PeersMutex.RLock()
+	for _, peer := range network.Peers {
+		peer.InventoryToSendMutex.Lock()
+		peer.InventoryToSend.AddItem(models.MSG_BLOCK, block.Header.Id)
+		peer.InventoryToSendMutex.Unlock()
+	}
+	network.PeersMutex.RUnlock()
 }
