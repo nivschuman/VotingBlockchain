@@ -56,7 +56,7 @@ func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
 	}()
 
 	p := peer.NewPeer(peer1Conn, true)
-	p.StartPeer()
+	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
 	}()
 
 	p := peer.NewPeer(peer1Conn, true)
-	p.StartPeer()
+	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
 	if err == nil {
@@ -109,7 +109,7 @@ func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
 	}()
 
 	p := peer.NewPeer(peer1Conn, true)
-	p.StartPeer()
+	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
 	if err == nil {

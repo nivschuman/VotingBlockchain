@@ -22,6 +22,7 @@ type Miner struct {
 
 	stopChannel chan bool
 	stopOnce    sync.Once
+	wg          sync.WaitGroup
 }
 
 func NewMiner() *Miner {
@@ -36,12 +37,12 @@ func (miner *Miner) AddHandler(blockHandler BlockHandler) {
 	miner.handlers = append(miner.handlers, blockHandler)
 }
 
-func (miner *Miner) StartMiner(wg *sync.WaitGroup) {
-	wg.Add(1)
+func (miner *Miner) Start() {
+	miner.wg.Add(1)
 	log.Printf("Started miner")
 
 	go func() {
-		defer wg.Done()
+		defer miner.wg.Done()
 		for {
 			select {
 			case <-miner.stopChannel:
@@ -129,9 +130,10 @@ func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
 	return template, nil
 }
 
-func (miner *Miner) StopMiner() {
+func (miner *Miner) Stop() {
 	miner.stopOnce.Do(func() {
 		log.Printf("Stopped miner")
 		close(miner.stopChannel)
 	})
+	miner.wg.Wait()
 }

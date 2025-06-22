@@ -48,6 +48,7 @@ type Peer struct {
 
 	stopChannel    chan bool
 	disconnectOnce sync.Once
+	wg             sync.WaitGroup
 }
 
 func NewPeer(conn net.Conn, initializer bool) *Peer {
@@ -94,103 +95,16 @@ func (peer *Peer) String() string {
 	return peer.Conn.RemoteAddr().String()
 }
 
-func (peer *Peer) StartPeer() {
-	go peer.ReadMessages()
-	go peer.SendMessages()
+func (peer *Peer) Start() {
+	peer.wg.Add(2)
+	go peer.readMessages()
+	go peer.sendMessages()
 }
 
 func (peer *Peer) StartProcessing() {
-	go peer.ProcessMessages()
-	go peer.SendData()
-}
-
-func (peer *Peer) ReadMessages() {
-	for {
-		select {
-		case <-peer.StopChannel:
-			close(peer.readChannel)
-			return
-		default:
-			message, err := peer.reader.ReadMessage(peer.Conn)
-
-			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
-				close(peer.readChannel)
-				peer.Disconnect()
-				return
-			}
-
-			if err != nil {
-				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr().String(), err)
-				continue
-			}
-
-			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
-
-			if !validChecksum {
-				log.Printf("Invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr().String())
-				continue
-			}
-
-			peer.readChannel <- *message
-		}
-	}
-}
-
-func (peer *Peer) SendMessages() {
-	for {
-		select {
-		case <-peer.StopChannel:
-			return
-		case message := <-peer.sendChannel:
-			err := peer.sender.SendMessage(peer.Conn, &message)
-
-			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
-				peer.Disconnect()
-				return
-			}
-
-			if err != nil {
-				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)
-			}
-		}
-	}
-}
-
-func (peer *Peer) SendData() {
-	sendDataInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
-	tickerData := time.NewTicker(sendDataInterval)
-	defer tickerData.Stop()
-
-	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
-	tickerPing := time.NewTicker(pingInterval)
-	defer tickerPing.Stop()
-
-	for {
-		select {
-		case <-peer.StopChannel:
-			return
-		case <-tickerPing.C:
-			peer.MaybeSendPing()
-		case <-tickerData.C:
-			peer.SendInventory()
-		}
-	}
-}
-
-func (peer *Peer) ProcessMessages() {
-	for {
-		select {
-		case <-peer.StopChannel:
-			return
-		case message := <-peer.readChannel:
-			peer.commandHandlersMutex.Lock()
-			handlers := peer.commandHandlers.GetOrDefault(message.MessageHeader.Command[:], make([]CommandHandler, 0))
-			for _, handler := range handlers {
-				handler(peer, &message)
-			}
-			peer.commandHandlersMutex.Unlock()
-		}
-	}
+	peer.wg.Add(2)
+	go peer.processMessages()
+	go peer.sendData()
 }
 
 func (peer *Peer) AddCommandHandler(command [12]byte, commandHandler CommandHandler) {
@@ -220,9 +134,107 @@ func (peer *Peer) Disconnect() {
 
 		peer.Disconnected = true
 	})
+	peer.wg.Wait()
 }
 
-func (peer *Peer) MaybeSendPing() {
+func (peer *Peer) readMessages() {
+	defer peer.wg.Done()
+	for {
+		select {
+		case <-peer.StopChannel:
+			close(peer.readChannel)
+			return
+		default:
+			message, err := peer.reader.ReadMessage(peer.Conn)
+
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				close(peer.readChannel)
+				peer.Disconnected = true
+				return
+			}
+
+			if err != nil {
+				log.Printf("Error when receiving message from peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+				continue
+			}
+
+			validChecksum := checksum.ValidateChecksum(message.Payload, message.MessageHeader.CheckSum)
+
+			if !validChecksum {
+				log.Printf("Invalid checksum when receiving message from peer %s", peer.Conn.RemoteAddr().String())
+				continue
+			}
+
+			peer.readChannel <- *message
+		}
+	}
+}
+
+func (peer *Peer) sendMessages() {
+	defer peer.wg.Done()
+	for {
+		select {
+		case <-peer.StopChannel:
+			return
+		case message := <-peer.sendChannel:
+			err := peer.sender.SendMessage(peer.Conn, &message)
+
+			if err == io.EOF || err == io.ErrClosedPipe || errors.Is(err, net.ErrClosed) {
+				peer.Disconnected = true
+				return
+			}
+
+			if err != nil {
+				log.Printf("Failed to send message to peer %s: %v", peer.Conn.RemoteAddr().String(), err)
+			}
+		}
+	}
+}
+
+func (peer *Peer) sendData() {
+	defer peer.wg.Done()
+	sendDataInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerData := time.NewTicker(sendDataInterval)
+	defer tickerData.Stop()
+
+	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	tickerPing := time.NewTicker(pingInterval)
+	defer tickerPing.Stop()
+
+	for {
+		select {
+		case <-peer.StopChannel:
+			return
+		case <-tickerPing.C:
+			peer.maybeSendPing()
+		case <-tickerData.C:
+			peer.sendInventory()
+		}
+	}
+}
+
+func (peer *Peer) processMessages() {
+	defer peer.wg.Done()
+	for {
+		select {
+		case <-peer.StopChannel:
+			return
+		case message, ok := <-peer.readChannel:
+			if !ok {
+				return
+			}
+
+			peer.commandHandlersMutex.Lock()
+			handlers := peer.commandHandlers.GetOrDefault(message.MessageHeader.Command[:], make([]CommandHandler, 0))
+			for _, handler := range handlers {
+				handler(peer, &message)
+			}
+			peer.commandHandlersMutex.Unlock()
+		}
+	}
+}
+
+func (peer *Peer) maybeSendPing() {
 	if peer.PingPongDetails.Nonce != 0 {
 		return
 	}
@@ -243,7 +255,7 @@ func (peer *Peer) MaybeSendPing() {
 	}
 }
 
-func (peer *Peer) SendInventory() {
+func (peer *Peer) sendInventory() {
 	peer.InventoryToSendMutex.Lock()
 	defer peer.InventoryToSendMutex.Unlock()
 
