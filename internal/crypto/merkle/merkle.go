@@ -16,6 +16,10 @@ type MerkleProof struct {
 }
 
 func CalculateMerkleRoot(hashables []hash.Hashable) []byte {
+	if len(hashables) == 0 {
+		return make([]byte, 32)
+	}
+
 	hashes := getHashes(hashables)
 	for len(hashes) > 1 {
 		var newLevel [][]byte
