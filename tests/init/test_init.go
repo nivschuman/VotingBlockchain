@@ -15,36 +15,29 @@ import (
 func SetupTests() {
 	setupConstants()
 
-	err := os.Setenv("APP_ENV", "test")
-
-	if err != nil {
-		log.Fatalf("Failed to set APP_ENV: %v", err)
-	}
-
-	projectRoot, err := getProjectRoot()
-
+	testsRoot, err := getParentDirectory("tests")
 	if err != nil {
 		log.Fatalf("Failed to get project root: %v", err)
 	}
 
-	os.Chdir(projectRoot)
+	err = os.Chdir(testsRoot)
+	if err != nil {
+		log.Fatalf("Failed to get change dir to project root: %v", err)
+	}
 
-	err = config.InitializeGlobalConfig()
-
+	err = config.InitializeGlobalConfig("config/config-test.yml")
 	if err != nil {
 		log.Fatalf("Failed to initialize global config: %v", err)
 	}
 }
 
 func SetupTestsDatabase() {
-	err := db.InitializeGlobalDB()
-
+	err := db.InitializeGlobalDB(":memory:")
 	if err != nil {
 		log.Fatalf("Failed to initialize db: %v", err)
 	}
 
-	err = initializeRepositories()
-
+	err = repositories.InitializeGlobalRepositories(db.GlobalDB)
 	if err != nil {
 		log.Fatalf("Failed to initialize repositories: %v", err)
 	}
@@ -54,28 +47,18 @@ func SetupTestsDatabase() {
 
 func ResetTestDatabase() {
 	err := db.ResetDatabase(db.GlobalDB)
-
 	if err != nil {
 		log.Fatalf("Failed to reset db: %v", err)
 	}
 
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
-	err = repositories.GlobalBlockRepository.InsertIfNotExists(genesisBlock)
-
+	err = repositories.GlobalBlockRepository.Setup()
 	if err != nil {
-		log.Fatalf("Failed to insert genesis block: %v", err)
-	}
-
-	err = repositories.GlobalBlockRepository.SetActiveChainTipId()
-
-	if err != nil {
-		log.Fatalf("Failed to set active chain tip: %v", err)
+		log.Fatalf("Failed to setup block repository: %v", err)
 	}
 }
 
 func CloseTestDatabase() {
 	err := db.CloseDatabaseConnection(db.GlobalDB)
-
 	if err != nil {
 		log.Fatalf("Failed to close test database: %v", err)
 	}
@@ -90,31 +73,23 @@ func setupConstants() {
 	difficulty.MAX_TIMESPAN = difficulty.TARGET_TIMESPAN * 4
 }
 
-func initializeRepositories() error {
-	err := repositories.InitializeGlobalBlockRepository(db.GlobalDB)
-
-	if err != nil {
-		return err
-	}
-
-	return repositories.InitializeGlobalTransactionRepository(db.GlobalDB)
-}
-
-func getProjectRoot() (string, error) {
+func getParentDirectory(directoryName string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		if filepath.Base(dir) == directoryName {
 			return dir, nil
 		}
 
-		dir = filepath.Dir(dir)
-
-		if dir == "/" || dir == "." {
-			return "", fmt.Errorf("could not find project root (go.mod not found)")
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
 		}
+		dir = parent
 	}
+
+	return "", fmt.Errorf("directory '%s' not found in path", directoryName)
 }

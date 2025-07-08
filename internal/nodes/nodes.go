@@ -1,5 +1,11 @@
 package nodes
 
+import (
+	"fmt"
+
+	config "github.com/nivschuman/VotingBlockchain/internal/config"
+)
+
 type NodeType int
 
 const (
@@ -13,7 +19,7 @@ type Node interface {
 }
 
 type NodeFactory interface {
-	CreateNode(NodeType) Node
+	CreateNode(NodeType) (Node, error)
 }
 
 type nodeFactoryImpl struct {
@@ -21,11 +27,11 @@ type nodeFactoryImpl struct {
 
 var GlobalNodeFactory NodeFactory = &nodeFactoryImpl{}
 
-func (*nodeFactoryImpl) CreateNode(nodeType NodeType) Node {
+func (*nodeFactoryImpl) CreateNode(nodeType NodeType) (Node, error) {
 	switch nodeType {
 	case FULL_NODE:
-		return NewFullNode(true)
+		return NewFullNode(config.GlobalConfig.MinerConfig.Enabled), nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported node type: %v", nodeType)
 	}
 }

@@ -39,7 +39,7 @@ func (miner *Miner) AddHandler(blockHandler BlockHandler) {
 
 func (miner *Miner) Start() {
 	miner.wg.Add(1)
-	log.Printf("Started miner")
+	log.Printf("|Miner| Starting")
 
 	go func() {
 		defer miner.wg.Done()
@@ -50,7 +50,7 @@ func (miner *Miner) Start() {
 			default:
 				blockTemplate, err := miner.CreateBlockTemplate()
 				if err != nil {
-					log.Printf("Failed to create block template: %v", err)
+					log.Printf("|Miner| Failed to create block template: %v", err)
 				}
 
 				miner.MineBlockTemplate(blockTemplate)
@@ -62,13 +62,15 @@ func (miner *Miner) Start() {
 func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 	medianPastTime, err := repos.GlobalBlockRepository.GetMedianTimePast(blockTemplate.Header.PreviousBlockId, 11)
 	if err != nil {
-		log.Printf("Failed to get median time past: %v", err)
+		log.Printf("|Miner| Failed to get median time past: %v", err)
 		return
 	}
 
 	startTime := time.Now()
-	log.Printf("Started mining block")
+	lastLogTime := startTime
+	lastLogNonce := uint64(0)
 
+	log.Printf("|Miner| Started mining block")
 	blockTemplate.Header.Nonce = 0
 	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.NetworkTime)
 	for !blockTemplate.Header.IsHashBelowTarget() {
@@ -77,6 +79,16 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 			return
 		default:
 			blockTemplate.Header.Nonce++
+
+			if time.Since(lastLogTime) > 10*time.Minute {
+				elapsed := time.Since(startTime).Seconds()
+				hashes := blockTemplate.Header.Nonce - lastLogNonce
+				hashRate := float64(hashes) / time.Since(lastLogTime).Seconds()
+
+				log.Printf("|Miner| Mining... nonce=%d, %.2f hashes/sec, elapsed=%.0fs", blockTemplate.Header.Nonce, hashRate, elapsed)
+				lastLogTime = time.Now()
+				lastLogNonce = blockTemplate.Header.Nonce
+			}
 
 			if blockTemplate.Header.Nonce&0x3ffff == 0 {
 				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.NetworkTime)
@@ -91,7 +103,7 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 	blockTemplate.Header.SetId()
 
 	duration := time.Since(startTime)
-	log.Printf("Mined block %x in %s", blockTemplate.Header.Id, duration)
+	log.Printf("|Miner| Mined block %x in %s", blockTemplate.Header.Id, duration)
 
 	for _, handler := range miner.handlers {
 		handler(blockTemplate)
@@ -131,7 +143,7 @@ func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
 
 func (miner *Miner) Stop() {
 	miner.stopOnce.Do(func() {
-		log.Printf("Stopped miner")
+		log.Printf("|Miner| Stopping")
 		close(miner.stopChannel)
 	})
 	miner.wg.Wait()

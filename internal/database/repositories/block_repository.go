@@ -39,6 +39,16 @@ func InitializeGlobalBlockRepository(db *gorm.DB) error {
 	return nil
 }
 
+func (repo *BlockRepository) Setup() error {
+	genesisBlock := repo.GenesisBlock()
+	err := repo.InsertIfNotExists(genesisBlock)
+	if err != nil {
+		return err
+	}
+
+	return repo.SetActiveChainTipId()
+}
+
 func (repo *BlockRepository) GetNextWorkRequired(lastBlockId []byte) (uint32, error) {
 	if lastBlockId == nil {
 		return difficulty.MINIMUM_DIFFICULTY, nil

@@ -16,6 +16,12 @@ import (
 )
 
 type PeersMap map[string]*peer.Peer
+type PeerEventType int
+type PeerEventHandler func(PeerEventType, *peer.Peer)
+
+const (
+	PeerConnected PeerEventType = iota
+)
 
 type Network struct {
 	Listener *connectors.Listener
@@ -23,6 +29,9 @@ type Network struct {
 
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
+
+	peerEventHandlersMutex sync.Mutex
+	peerEventHandlers      []PeerEventHandler
 
 	commandHandlersMutex sync.Mutex
 	commandHandlers      *structures.BytesMap[peer.CommandHandler]
@@ -36,6 +45,7 @@ func NewNetwork(ip string, port uint16) *Network {
 	network.Listener = connectors.NewListener(ip, port, network.handleConnection)
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
+	network.peerEventHandlers = make([]PeerEventHandler, 0)
 	network.stopChannel = make(chan bool)
 	network.commandHandlers = structures.NewBytesMap[peer.CommandHandler]()
 
@@ -43,12 +53,14 @@ func NewNetwork(ip string, port uint16) *Network {
 }
 
 func (network *Network) Start() {
+	log.Print("|Network| Starting")
 	network.Listener.Listen(&network.wg)
 	network.dialPeers()
 	network.removePeers()
 }
 
 func (network *Network) Stop() {
+	log.Print("|Network| Stopping")
 	close(network.stopChannel)
 	network.Listener.StopListening()
 	network.wg.Wait()
@@ -57,7 +69,7 @@ func (network *Network) Stop() {
 	defer network.PeersMutex.Unlock()
 
 	for _, peer := range network.Peers {
-		log.Printf("Network: removing peer %s", peer.String())
+		log.Printf("|Network| Removing peer %s", peer.String())
 		peer.Disconnect()
 	}
 	network.Peers = make(PeersMap)
@@ -86,15 +98,23 @@ func (network *Network) NetworkTime() int64 {
 
 func (network *Network) AddCommandHandler(command [12]byte, handler peer.CommandHandler) {
 	network.commandHandlersMutex.Lock()
+	defer network.commandHandlersMutex.Unlock()
+
 	network.commandHandlers.Put(command[:], handler)
-	network.commandHandlersMutex.Unlock()
+}
+
+func (network *Network) AddPeerEventHandler(handler PeerEventHandler) {
+	network.peerEventHandlersMutex.Lock()
+	defer network.peerEventHandlersMutex.Unlock()
+
+	network.peerEventHandlers = append(network.peerEventHandlers, handler)
 }
 
 func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	network.PeersMutex.Lock()
-	defer network.PeersMutex.Unlock()
 
 	if _, ok := network.Peers[conn.RemoteAddr().String()]; ok {
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -103,8 +123,9 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	err := p.WaitForHandshake(time.Second * 10)
 
 	if err != nil {
-		log.Printf("Failed to complete handshake with peer %s: %v", p.String(), p.HandshakeDetails.Error)
+		log.Printf("|Network| Failed to complete handshake with peer %s: %v", p.String(), p.HandshakeDetails.Error)
 		p.Disconnect()
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -123,6 +144,13 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	p.AddCommandHandler(models.CommandPing, network.processPing)
 	p.AddCommandHandler(models.CommandPong, network.processPong)
 	p.StartProcessing()
+	network.PeersMutex.Unlock()
+
+	network.peerEventHandlersMutex.Lock()
+	for _, handler := range network.peerEventHandlers {
+		handler(PeerConnected, p)
+	}
+	network.peerEventHandlersMutex.Unlock()
 }
 
 func (network *Network) dialPeers() {
@@ -131,7 +159,7 @@ func (network *Network) dialPeers() {
 	go func() {
 		defer network.wg.Done()
 		//TBD must go over all peers in database and dial them...
-		log.Println("Network: stopping dial peers")
+		log.Println("|Network| Stopping dial peers")
 	}()
 }
 
@@ -146,7 +174,7 @@ func (network *Network) removePeers() {
 		for {
 			select {
 			case <-network.stopChannel:
-				log.Println("Network: stopping remove peers")
+				log.Println("|Network| Stopping remove peers")
 				return
 			case <-ticker.C:
 				network.PeersMutex.RLock()
@@ -167,7 +195,7 @@ func (network *Network) removePeers() {
 
 				network.PeersMutex.Lock()
 				for _, peer := range toRemove {
-					log.Printf("Network: removing peer %s", peer.String())
+					log.Printf("|Network| Removing peer %s", peer.String())
 					peer.Disconnect()
 					delete(network.Peers, peer.Conn.RemoteAddr().String())
 				}

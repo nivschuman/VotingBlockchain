@@ -31,7 +31,7 @@ func (listener *Listener) Listen(wg *sync.WaitGroup) {
 	var err error
 	listener.ln, err = net.Listen("tcp", address)
 	if err != nil {
-		log.Panicf("failed to start listener on address %s: %v", address, err)
+		log.Panicf("|Listener| Failed to start listener on address %s: %v", address, err)
 	}
 
 	wg.Add(1)
@@ -40,7 +40,7 @@ func (listener *Listener) Listen(wg *sync.WaitGroup) {
 			conn, err := listener.ln.Accept()
 
 			if errors.Is(err, net.ErrClosed) {
-				log.Printf("stopping listener on address %s", address)
+				log.Printf("|Listener| stopping listener on address %s", address)
 				wg.Done()
 				return
 			}
@@ -56,8 +56,7 @@ func (listener *Listener) Listen(wg *sync.WaitGroup) {
 
 func (listener *Listener) StopListening() {
 	err := listener.ln.Close()
-
 	if err != nil {
-		log.Panicf("Failed to close listener on address %s: %v", listener.ln.Addr().String(), err)
+		log.Panicf("|Listener| Failed to close listener on address %s: %v", listener.ln.Addr().String(), err)
 	}
 }

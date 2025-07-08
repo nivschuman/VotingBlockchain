@@ -6,11 +6,13 @@ import (
 
 type MinerConfig struct {
 	PublicKey []byte `yaml:"public-key"`
+	Enabled   bool   `yaml:"enabled"`
 }
 
 func (m *MinerConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	var raw struct {
 		PublicKey string `yaml:"public-key"`
+		Enabled   bool   `yaml:"enabled"`
 	}
 
 	if err := unmarshal(&raw); err != nil {
@@ -23,5 +25,6 @@ func (m *MinerConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	m.PublicKey = publicKeyBytes
+	m.Enabled = raw.Enabled
 	return nil
 }
