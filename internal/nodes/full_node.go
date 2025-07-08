@@ -31,6 +31,7 @@ func NewFullNode(mine bool) *FullNode {
 	ip := config.GlobalConfig.NetworkConfig.Ip
 	port := config.GlobalConfig.NetworkConfig.Port
 	fullNode.network = network.NewNetwork(ip, port)
+	fullNode.network.AddPeerEventHandler(fullNode.handlePeerEvent)
 	fullNode.network.AddCommandHandler(models.CommandGetBlocks, fullNode.processGetBlocks)
 	fullNode.network.AddCommandHandler(models.CommandMemPool, fullNode.processMemPool)
 	fullNode.network.AddCommandHandler(models.CommandTx, fullNode.processTx)
@@ -48,6 +49,7 @@ func NewFullNode(mine bool) *FullNode {
 }
 
 func (fullNode *FullNode) Start() {
+	log.Print("|Node| Starting full node")
 	fullNode.network.Start()
 	if fullNode.mine {
 		fullNode.miner.Start()
@@ -55,9 +57,19 @@ func (fullNode *FullNode) Start() {
 }
 
 func (fullNode *FullNode) Stop() {
+	log.Print("|Node| Stopping full node")
 	fullNode.network.Stop()
 	if fullNode.mine {
 		fullNode.miner.Stop()
+	}
+}
+
+func (fullNode *FullNode) handlePeerEvent(eventType network.PeerEventType, peer *peer.Peer) {
+	switch eventType {
+	case network.PeerConnected:
+		if fullNode.miner != nil && fullNode.network != nil {
+			fullNode.miner.NetworkTime = fullNode.network.NetworkTime()
+		}
 	}
 }
 
@@ -65,7 +77,7 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 	inv, err := models.InvFromBytes(message.Payload)
 
 	if err != nil {
-		log.Printf("Failed to parse inv from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse inv from %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -86,14 +98,14 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 	missingTransactions, err := repos.GlobalTransactionRepository.GetMissingTransactionIds(txHashes)
 
 	if err != nil {
-		log.Printf("Failed to get missing transactions : %v", err)
+		log.Printf("|Node| Failed to get missing transactions : %v", err)
 		return
 	}
 
 	missingBlocks, err := repos.GlobalBlockRepository.GetMissingBlockIds(blockHashes)
 
 	if err != nil {
-		log.Printf("Failed to get missing blocks : %v", err)
+		log.Printf("|Node| Failed to get missing blocks : %v", err)
 		return
 	}
 
@@ -108,7 +120,7 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 	getDataMessage, err := models.NewGetDataMessage(getData)
 
 	if err != nil {
-		log.Printf("Failed to make get data message for %s : %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to make get data message for %s : %v", fromPeer.String(), err)
 		return
 	}
 
@@ -123,38 +135,38 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 	transaction, err := data_models.TransactionFromBytes(message.Payload)
 
 	if err != nil {
-		log.Printf("Failed to parse transaction from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse transaction from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	valid, err := transaction.IsValid()
 
 	if err != nil {
-		log.Printf("Failed to validate transaction from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to validate transaction from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	if !valid {
-		log.Printf("Received invalid transaction from %s", fromPeer.String())
+		log.Printf("|Node| Received invalid transaction from %s", fromPeer.String())
 		return
 	}
 
 	valid, err = repos.GlobalTransactionRepository.TransactionValidInActiveChain(transaction)
 
 	if err != nil {
-		log.Printf("Failed validating transaction from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed validating transaction from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	if !valid {
-		log.Printf("Received invalid transaction from %s", fromPeer.String())
+		log.Printf("|Node| Received invalid transaction from %s", fromPeer.String())
 		return
 	}
 
 	err = repos.GlobalTransactionRepository.InsertIfNotExists(transaction)
 
 	if err != nil {
-		log.Printf("Failed to insert transaction from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to insert transaction from %s: %v", fromPeer.String(), err)
 	}
 
 	fullNode.network.PeersMutex.RLock()
@@ -172,7 +184,7 @@ func (fullNode *FullNode) processMemPool(fromPeer *peer.Peer, _ *models.Message)
 	transactions, err := repos.GlobalTransactionRepository.GetMempool(10)
 
 	if err != nil {
-		log.Printf("Failed to get mempool for %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to get mempool for %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -185,7 +197,7 @@ func (fullNode *FullNode) processMemPool(fromPeer *peer.Peer, _ *models.Message)
 	mempoolMessage, err := models.NewInvMessage(inv)
 
 	if err != nil {
-		log.Printf("Failed to create mempool inv message for %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to create mempool inv message for %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -200,7 +212,7 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 	getData, err := models.GetDataFromBytes(message.Payload)
 
 	if err != nil {
-		log.Printf("Failed to parse getdata from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse getdata from %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -219,14 +231,14 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 	transactions, err := repos.GlobalTransactionRepository.GetTransactions(txHashes)
 
 	if err != nil {
-		log.Printf("Failed to get transactions : %v", err)
+		log.Printf("|Node| Failed to get transactions : %v", err)
 		return
 	}
 
 	blocks, err := repos.GlobalBlockRepository.GetBlocks(blockHashes)
 
 	if err != nil {
-		log.Printf("Failed to get blocks : %v", err)
+		log.Printf("|Node| Failed to get blocks : %v", err)
 		return
 	}
 
@@ -255,14 +267,14 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 	getBlocks, err := models.GetBlocksFromBytes(message.Payload)
 
 	if err != nil {
-		log.Printf("Failed to parse getblocks from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse getblocks from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	blocksIds, err := repos.GlobalBlockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
 
 	if err != nil {
-		log.Printf("Failed to parse get next blocks for %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse get next blocks for %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -275,7 +287,7 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 	invMessage, err := models.NewInvMessage(inv)
 
 	if err != nil {
-		log.Printf("Failed to create get blocks inv message for %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to create get blocks inv message for %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -291,7 +303,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	block, err := data_models.BlockFromBytes(message.Payload)
 
 	if err != nil {
-		log.Printf("Failed to parse block from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to parse block from %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -303,7 +315,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	exists, err := repos.GlobalBlockRepository.HaveBlock(block.Header.Id)
 
 	if err != nil {
-		log.Printf("Failed to check if block exists from %s is orphan: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to check if block exists from %s is orphan: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -315,19 +327,19 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	isOrphan, err := repos.GlobalBlockRepository.BlockIsOrphan(block)
 
 	if err != nil {
-		log.Printf("Failed to check if block from %s is orphan: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to check if block from %s is orphan: %v", fromPeer.String(), err)
 	}
 
 	//Check block
 	isValid, err := fullNode.checkBlock(block)
 
 	if err != nil {
-		log.Printf("Failed to check block from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to check block from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	if !isValid {
-		log.Printf("Received invalid block from %s", fromPeer.String())
+		log.Printf("|Node| Received invalid block from %s", fromPeer.String())
 		return
 	}
 
@@ -341,7 +353,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 		blockLocator, err := repos.GlobalBlockRepository.GetActiveChainBlockLocator()
 
 		if err != nil {
-			log.Printf("Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
+			log.Printf("|Node| Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
 			return
 		}
 
@@ -350,7 +362,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 
 		msg, err := models.NewGetBlocksMessage(getBlocks)
 		if err != nil {
-			log.Printf("Failed to make get blocks message for %s: %v", fromPeer.String(), err)
+			log.Printf("|Node| Failed to make get blocks message for %s: %v", fromPeer.String(), err)
 			return
 		}
 
@@ -367,12 +379,12 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	isValid, err = fullNode.validateBlock(block)
 
 	if err != nil {
-		log.Printf("Failed to validate block from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to validate block from %s: %v", fromPeer.String(), err)
 		return
 	}
 
 	if !isValid {
-		log.Printf("Received invalid block from %s", fromPeer.String())
+		log.Printf("|Node| Received invalid block from %s", fromPeer.String())
 		return
 	}
 
@@ -380,7 +392,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
 
 	if err != nil {
-		log.Printf("Failed to insert block from %s: %v", fromPeer.String(), err)
+		log.Printf("|Node| Failed to insert block from %s: %v", fromPeer.String(), err)
 		return
 	}
 
@@ -408,19 +420,19 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 			isValid, err := fullNode.validateBlock(child)
 
 			if err != nil {
-				log.Printf("Failed to validate orphan child %x: %v", child.Header.Id, err)
+				log.Printf("|Node| Failed to validate orphan child %x: %v", child.Header.Id, err)
 				continue
 			}
 
 			if !isValid {
-				log.Printf("Invalid orphan child block %x", child.Header.Id)
+				log.Printf("|Node| Invalid orphan child block %x", child.Header.Id)
 				continue
 			}
 
 			err = repos.GlobalBlockRepository.InsertIfNotExists(child)
 
 			if err != nil {
-				log.Printf("Failed to insert orphan child block %x: %v", child.Header.Id, err)
+				log.Printf("|Node| Failed to insert orphan child block %x: %v", child.Header.Id, err)
 				continue
 			}
 
@@ -554,12 +566,12 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	isValid, err := fullNode.checkBlock(block)
 
 	if err != nil {
-		log.Printf("Failed to check block mined block: %v", err)
+		log.Printf("|Node| Failed to check block mined block: %v", err)
 		return
 	}
 
 	if !isValid {
-		log.Print("Received invalid block from miner")
+		log.Print("|Node| Received invalid block from miner")
 		return
 	}
 
@@ -567,12 +579,12 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	isValid, err = fullNode.validateBlock(block)
 
 	if err != nil {
-		log.Printf("Failed to validate block miner: %v", err)
+		log.Printf("|Node| Failed to validate block miner: %v", err)
 		return
 	}
 
 	if !isValid {
-		log.Print("Received invalid block from miner")
+		log.Print("|Node| Received invalid block from miner")
 		return
 	}
 
@@ -580,7 +592,7 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
 
 	if err != nil {
-		log.Printf("Failed to insert block from miner: %v", err)
+		log.Printf("|Node| Failed to insert block from miner: %v", err)
 		return
 	}
 
