@@ -473,7 +473,11 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 		}
 	}
 
-	//TBD check merkle root
+	//Check merkle root
+	merkleRoot := data_models.TransactionsMerkleRoot(block.Transactions)
+	if !bytes.Equal(block.Header.MerkleRoot, merkleRoot) {
+		return false, nil
+	}
 
 	return true, nil
 }

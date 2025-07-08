@@ -6,6 +6,7 @@ import (
 
 	"github.com/nivschuman/VotingBlockchain/internal/config"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
+	"github.com/nivschuman/VotingBlockchain/internal/crypto/merkle"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 )
 
@@ -131,4 +132,13 @@ func (transaction *Transaction) IsValid() (bool, error) {
 	}
 
 	return true, nil
+}
+
+func TransactionsMerkleRoot(txs []*Transaction) []byte {
+	hashables := make([]hash.Hashable, len(txs))
+	for idx, tx := range txs {
+		hashables[idx] = tx
+	}
+
+	return merkle.CalculateMerkleRoot(hashables)
 }

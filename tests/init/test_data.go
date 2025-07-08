@@ -21,7 +21,7 @@ func CreateTestBlock(previousBlockId []byte, transactions []*models.Transaction)
 	blockHeader := models.BlockHeader{
 		Version:         1,
 		PreviousBlockId: previousBlockId,
-		MerkleRoot:      make([]byte, 32),
+		MerkleRoot:      models.TransactionsMerkleRoot(transactions),
 		Timestamp:       time.Now().Unix(),
 		NBits:           uint32(difficulty.MINIMUM_DIFFICULTY),
 		Nonce:           0,

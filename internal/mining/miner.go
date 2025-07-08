@@ -111,8 +111,7 @@ func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
 		return nil, err
 	}
 
-	//TBD calculate merkle root
-	merkleRoot := make([]byte, 32)
+	merkleRoot := data_models.TransactionsMerkleRoot(txs)
 
 	templateHeader := data_models.BlockHeader{
 		Version:         config.GlobalConfig.NodeConfig.Version,
