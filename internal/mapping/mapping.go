@@ -1,10 +1,12 @@
 package mapping
 
 import (
+	"net"
 	"slices"
 
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
+	networking_models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 )
 
 func TransactionToTransactionDB(transaction *models.Transaction) *db_models.TransactionDB {
@@ -77,4 +79,23 @@ func BlockToBlockDB(block *models.Block) *db_models.BlockDB {
 	}
 
 	return blockDB
+}
+
+func AddressToAddressDB(address *networking_models.Address) *db_models.AddressDB {
+	return &db_models.AddressDB{
+		Ip:         address.Ip.String(),
+		Port:       address.Port,
+		NodeType:   address.NodeType,
+		CreatedAt:  nil,
+		LastSeen:   nil,
+		LastFailed: nil,
+	}
+}
+
+func AddressDBToAddress(addressDB *db_models.AddressDB) *networking_models.Address {
+	return &networking_models.Address{
+		Ip:       net.ParseIP(addressDB.Ip),
+		Port:     addressDB.Port,
+		NodeType: addressDB.NodeType,
+	}
 }

@@ -3,7 +3,6 @@ package networking_peer
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"time"
 
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
@@ -18,94 +17,64 @@ const (
 	SendVerack
 	ReceiveVerAck
 	Completed
-	Failed
 )
 
 type HandshakeDetails struct {
 	HandshakeState HandshakeState
 	Initializer    bool //true if we need to initialize handshake with peer
 	Nonce          uint64
-	Error          error
 }
 
 func (peer *Peer) WaitForHandshake(timeout time.Duration) error {
-	go peer.DoHandShake()
-
-	timeoutChan := time.After(timeout)
-	done := make(chan bool, 1)
-
+	result := make(chan error, 1)
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-timeoutChan:
-				return
-			case <-ticker.C:
-				if peer.CompletedHandshake() || peer.FailedHandshake() {
-					done <- true
-					return
-				}
-			}
-		}
+		result <- peer.DoHandShake()
 	}()
 
 	select {
-	case <-done:
-		if !peer.CompletedHandshake() {
-			return fmt.Errorf("handshake didn't complete, state: %s, error: %v", peer.HandshakeDetails.HandshakeState.AsString(), peer.HandshakeDetails.Error)
-		}
-
-		return nil
-	case <-timeoutChan:
+	case err := <-result:
+		return err
+	case <-time.After(timeout):
 		return fmt.Errorf("timeout reached while waiting for handshake completion, state: %s", peer.HandshakeDetails.HandshakeState.AsString())
 	}
 }
 
-func (peer *Peer) DoHandShake() {
-	for {
+func (peer *Peer) DoHandShake() error {
+	for peer.HandshakeDetails.HandshakeState != Completed {
 		switch peer.HandshakeDetails.HandshakeState {
 		case SendVersion:
-			peer.sendVersion()
+			err := peer.sendVersion()
+			if err != nil {
+				return err
+			}
 		case ReceiveVersion:
-			peer.receiveVersion()
+			err := peer.receiveVersion()
+			if err != nil {
+				return err
+			}
 		case ReceiveVerAck:
-			peer.receiveVerAck()
+			err := peer.receiveVerAck()
+			if err != nil {
+				return err
+			}
 		case SendVerack:
-			peer.sendVerAck()
-		case Completed:
-			return
-		case Failed:
-			return
+			err := peer.sendVerAck()
+			if err != nil {
+				return err
+			}
 		}
 	}
+
+	return nil
 }
 
-func (peer *Peer) CompletedHandshake() bool {
-	return peer.HandshakeDetails.HandshakeState == Completed
-}
-
-func (peer *Peer) FailedHandshake() bool {
-	return peer.HandshakeDetails.HandshakeState == Failed
-}
-
-func (peer *Peer) sendVersion() {
-	myVersion, err := models.MyVersion()
-
-	if err != nil {
-		peer.HandshakeDetails.Error = err
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
-	}
+func (peer *Peer) sendVersion() error {
+	myVersion := models.MyVersion()
 
 	if peer.HandshakeDetails.Initializer {
 		n, err := nonce.Generator.GenerateNonce()
-
 		if err != nil {
-			peer.HandshakeDetails.Error = err
-			peer.HandshakeDetails.HandshakeState = Failed
-			return
+			return err
 		}
 
 		peer.HandshakeDetails.HandshakeState = ReceiveVersion
@@ -120,83 +89,76 @@ func (peer *Peer) sendVersion() {
 
 	select {
 	case <-peer.StopChannel:
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("Peer stopped during handshake")
 	case peer.SendChannel <- *message:
+		return nil
 	}
 }
 
-func (peer *Peer) sendVerAck() {
+func (peer *Peer) sendVerAck() error {
 	verAckMessage := models.NewVerAckMessage()
 
 	select {
 	case <-peer.StopChannel:
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("Peer stopped during handshake")
 	case peer.SendChannel <- *verAckMessage:
 	}
 
 	if peer.HandshakeDetails.Initializer {
 		peer.HandshakeDetails.HandshakeState = ReceiveVerAck
-		return
+	} else {
+		peer.HandshakeDetails.HandshakeState = Completed
 	}
 
-	peer.HandshakeDetails.HandshakeState = Completed
+	return nil
 }
 
-func (peer *Peer) receiveVersion() {
+func (peer *Peer) receiveVersion() error {
 	message, ok := <-peer.readChannel
 
 	if !ok {
-		peer.HandshakeDetails.Error = fmt.Errorf("peer %s read channel closed while waiting for version message", peer.Conn.RemoteAddr().String())
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("peer %s read channel closed while waiting for version message", peer.Conn.RemoteAddr().String())
 	}
 
 	if !bytes.Equal(message.MessageHeader.Command[:], models.CommandVersion[:]) {
-		peer.HandshakeDetails.Error = fmt.Errorf("peer %s expected version message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("peer %s expected version message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
 	}
 
 	version := models.VersionFromBytes(message.Payload)
-	peer.PeerDetails = NewPeerDetailsFromVersion(version)
+
+	peer.SetPeerDetails(version)
+	peer.Address.NodeType = version.NodeType
+
 	if peer.HandshakeDetails.Initializer {
 		if version.Nonce != peer.HandshakeDetails.Nonce {
-			peer.HandshakeDetails.Error = fmt.Errorf("received bad nonce")
-			peer.HandshakeDetails.HandshakeState = Failed
-			return
+			return fmt.Errorf("received bad nonce")
 		}
 
 		peer.HandshakeDetails.HandshakeState = SendVerack
-		return
+		return nil
 	}
 
 	peer.HandshakeDetails.HandshakeState = SendVersion
+	return nil
 }
 
-func (peer *Peer) receiveVerAck() {
+func (peer *Peer) receiveVerAck() error {
 	message, ok := <-peer.readChannel
-
 	if !ok {
-		log.Printf("Peer %s read channel closed while waiting for verAck message", peer.Conn.RemoteAddr().String())
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("Peer %s read channel closed while waiting for verAck message", peer.Conn.RemoteAddr().String())
 	}
 
 	if !bytes.Equal(message.MessageHeader.Command[:], models.CommandVerAck[:]) {
-		peer.HandshakeDetails.Error = fmt.Errorf("peer %s expected verAck message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
-
-		peer.HandshakeDetails.HandshakeState = Failed
-		return
+		return fmt.Errorf("peer %s expected verAck message, received: %s", peer.Conn.RemoteAddr().String(), message.MessageHeader.Command)
 	}
 
 	if peer.HandshakeDetails.Initializer {
 		peer.HandshakeDetails.HandshakeState = Completed
-		return
+		return nil
 	}
 
 	peer.HandshakeDetails.HandshakeState = SendVerack
+	return nil
 }
 
 func initialHandshakeState(initializer bool) HandshakeState {
@@ -219,8 +181,6 @@ func (hs HandshakeState) AsString() string {
 		return "ReceiveVerack"
 	case Completed:
 		return "Completed"
-	case Failed:
-		return "Failed"
 	default:
 		return "Unknown"
 	}

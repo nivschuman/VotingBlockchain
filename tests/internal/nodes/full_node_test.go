@@ -292,13 +292,62 @@ func TestSendBlockToFullNode(t *testing.T) {
 	}
 }
 
+func TestSendAddrToFullNode(t *testing.T) {
+	inits.ResetTestDatabase()
+
+	fullNode := nodes.NewFullNode(false)
+	fullNode.Start()
+	t.Cleanup(func() {
+		fullNode.Stop()
+	})
+
+	ip := config.GlobalConfig.NetworkConfig.Ip
+	port := config.GlobalConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip, fmt.Sprint(port))
+
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("Failed to dial network: %v", err)
+	}
+
+	t.Cleanup(func() {
+		conn.Close()
+	})
+
+	doHandshake(conn)
+
+	addr := models.NewAddr()
+	addr.AddAddress(&models.Address{Ip: net.ParseIP("192.168.1.1"), Port: 8333, NodeType: 1})
+	addr.AddAddress(&models.Address{Ip: net.ParseIP("8.8.8.8"), Port: 8333, NodeType: 2})
+
+	addrMessage, err := models.NewAddrMessage(addr)
+	if err != nil {
+		t.Fatalf("Failed to create addr message: %v", err)
+	}
+
+	sender := connection.NewSender()
+	sender.SendMessage(conn, addrMessage)
+
+	//wait for addresses to get processed
+	time.Sleep(time.Second * 1)
+
+	for _, address := range addr.Addresses {
+		exists, err := repositories.GlobalAddressRepository.AddressExists(address)
+		if err != nil {
+			t.Fatalf("Failed to check if address exists: %v", err)
+		}
+
+		if exists {
+			t.Fatalf("Address %s found in repository", address)
+		}
+	}
+}
+
 func doHandshake(conn net.Conn) {
 	version := models.Version{
 		ProtocolVersion: 1,
 		NodeType:        1,
 		Timestamp:       time.Now().Unix(),
-		Ip:              1,
-		Port:            1,
 		Nonce:           1,
 		LastBlockHeight: 0,
 	}

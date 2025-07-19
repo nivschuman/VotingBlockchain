@@ -18,8 +18,6 @@ func getTestVersionMessage() *models.Message {
 		ProtocolVersion: 1,
 		NodeType:        1,
 		Timestamp:       time.Now().Unix(),
-		Ip:              1,
-		Port:            1,
 		Nonce:           1,
 		LastBlockHeight: 0,
 	}

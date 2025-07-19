@@ -1,27 +1,26 @@
 package ip
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 )
 
-func Uint32ToIPv4(ipUint32 uint32) string {
-	ipBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(ipBytes, ipUint32)
-	return net.IP(ipBytes).String()
-}
-
-func Ipv4ToUint32(ipStr string) (uint32, error) {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return 0, fmt.Errorf("invalid IP address: %s", ipStr)
+func ConnToIpAndPort(conn net.Conn) (net.IP, uint16, error) {
+	host, portStr, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		return nil, 0, err
 	}
 
-	ip = ip.To4()
+	ip := net.ParseIP(host)
 	if ip == nil {
-		return 0, fmt.Errorf("not a valid IPv4 address: %s", ipStr)
+		return nil, 0, fmt.Errorf("invalid IP: %s", host)
 	}
 
-	return binary.BigEndian.Uint32(ip), nil
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 0 || port > 65535 {
+		return nil, 0, fmt.Errorf("invalid port: %s", portStr)
+	}
+
+	return ip, uint16(port), nil
 }

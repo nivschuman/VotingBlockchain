@@ -31,7 +31,6 @@ func NewFullNode(mine bool) *FullNode {
 	ip := config.GlobalConfig.NetworkConfig.Ip
 	port := config.GlobalConfig.NetworkConfig.Port
 	fullNode.network = network.NewNetwork(ip, port)
-	fullNode.network.AddPeerEventHandler(fullNode.handlePeerEvent)
 	fullNode.network.AddCommandHandler(models.CommandGetBlocks, fullNode.processGetBlocks)
 	fullNode.network.AddCommandHandler(models.CommandMemPool, fullNode.processMemPool)
 	fullNode.network.AddCommandHandler(models.CommandTx, fullNode.processTx)
@@ -39,7 +38,7 @@ func NewFullNode(mine bool) *FullNode {
 	fullNode.network.AddCommandHandler(models.CommandInv, fullNode.processInv)
 	fullNode.network.AddCommandHandler(models.CommandBlock, fullNode.processBlock)
 
-	fullNode.miner = mining.NewMiner()
+	fullNode.miner = mining.NewMiner(&fullNode.network.NetworkTime)
 	fullNode.miner.AddHandler(fullNode.processMinedBlock)
 	fullNode.mine = mine
 
@@ -61,15 +60,6 @@ func (fullNode *FullNode) Stop() {
 	fullNode.network.Stop()
 	if fullNode.mine {
 		fullNode.miner.Stop()
-	}
-}
-
-func (fullNode *FullNode) handlePeerEvent(eventType network.PeerEventType, peer *peer.Peer) {
-	switch eventType {
-	case network.PeerConnected:
-		if fullNode.miner != nil && fullNode.network != nil {
-			fullNode.miner.NetworkTime = fullNode.network.NetworkTime()
-		}
 	}
 }
 
@@ -457,7 +447,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 
 func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be less than the network adjusted time +2 hours.
-	if block.Header.Timestamp > fullNode.network.NetworkTime()+2*60*60 {
+	if block.Header.Timestamp > fullNode.network.NetworkTime.Load()+2*60*60 {
 		return false, nil
 	}
 

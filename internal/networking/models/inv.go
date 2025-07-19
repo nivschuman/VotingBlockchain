@@ -3,7 +3,6 @@ package networking_models
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 
 	compact "github.com/nivschuman/VotingBlockchain/internal/networking/utils/compact"
 )
@@ -54,20 +53,20 @@ func (inv *Inv) AsBytes() ([]byte, error) {
 	compactSize, err := compact.GetCompactSizeBytes(inv.Count)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get compact size: %v", err)
+		return nil, err
 	}
 
 	if _, err := buf.Write(compactSize); err != nil {
-		return nil, fmt.Errorf("failed to write count: %v", err)
+		return nil, err
 	}
 
 	for _, item := range inv.Items {
 		if err := binary.Write(&buf, binary.BigEndian, item.Type); err != nil {
-			return nil, fmt.Errorf("failed to write InvItem Type: %v", err)
+			return nil, err
 		}
 
 		if _, err := buf.Write(item.Hash); err != nil {
-			return nil, fmt.Errorf("failed to write Hash: %v", err)
+			return nil, err
 		}
 	}
 
