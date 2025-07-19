@@ -3,6 +3,7 @@ package mining_test
 import (
 	"bytes"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
@@ -54,7 +55,8 @@ func TestCreateBlockTemplate(t *testing.T) {
 		t.Fatalf("failed to insert test tx2: %v", err)
 	}
 
-	miner := mining.NewMiner()
+	networkTime := &atomic.Int64{}
+	miner := mining.NewMiner(networkTime)
 
 	template, err := miner.CreateBlockTemplate()
 	if err != nil {
@@ -100,7 +102,9 @@ func TestMineBlockTemplate(t *testing.T) {
 		t.Fatalf("failed to create test block: %v", err)
 	}
 
-	miner := mining.NewMiner()
+	networkTime := &atomic.Int64{}
+	miner := mining.NewMiner(networkTime)
+
 	checkBlock := func(block *data_models.Block) {
 		t.Logf("mined block nonce is %d", block.Header.Nonce)
 

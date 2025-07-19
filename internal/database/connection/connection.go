@@ -13,6 +13,7 @@ var modelsToMigrate = []any{
 	&models.BlockDB{},
 	&models.BlockHeaderDB{},
 	&models.TransactionBlockDB{},
+	&models.AddressDB{},
 }
 
 var GlobalDB *gorm.DB = nil

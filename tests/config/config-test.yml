@@ -8,6 +8,8 @@ network:
   ping-interval: 120
   pong-timeout: 1200
   send-data-interval: 100
+  get-addr-interval: 300
+  max-number-of-connections: 10
 
 miner:
   enabled: false

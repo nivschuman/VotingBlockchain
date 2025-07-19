@@ -8,5 +8,10 @@ func InitializeGlobalRepositories(db *gorm.DB) error {
 		return err
 	}
 
-	return InitializeGlobalTransactionRepository(db)
+	err = InitializeGlobalTransactionRepository(db)
+	if err != nil {
+		return err
+	}
+
+	return InitializeGlobalAddressRepository(db)
 }

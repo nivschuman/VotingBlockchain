@@ -12,6 +12,7 @@ import (
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	checksum "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
+	ip_utils "github.com/nivschuman/VotingBlockchain/internal/networking/utils/ip"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
 	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
 )
@@ -25,8 +26,8 @@ type Peer struct {
 	Conn net.Conn
 
 	HandshakeDetails *HandshakeDetails
-	PeerDetails      *PeerDetails
 	PingPongDetails  *PingPongDetails
+	PeerDetails      *PeerDetails
 
 	SendChannel chan<- models.Message
 	StopChannel <-chan bool
@@ -36,6 +37,10 @@ type Peer struct {
 
 	InventoryToSendMutex sync.Mutex
 	InventoryToSend      *models.Inv
+
+	Address     *models.Address
+	LastSeen    *time.Time
+	SentGetAddr bool
 
 	commandHandlersMutex sync.Mutex
 	commandHandlers      *structures.BytesMap[[]CommandHandler]
@@ -63,7 +68,6 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 	handshakeDetails := &HandshakeDetails{
 		HandshakeState: initialHandshakeState(initializer),
 		Initializer:    initializer,
-		Error:          nil,
 	}
 
 	pingPongDetails := &PingPongDetails{
@@ -76,12 +80,15 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 		Conn:             conn,
 		HandshakeDetails: handshakeDetails,
 		PeerDetails:      nil,
+		Address:          &models.Address{},
+		LastSeen:         nil,
 		PingPongDetails:  pingPongDetails,
 		Disconnected:     false,
 		Remove:           false,
 		SendChannel:      sendChannel,
 		StopChannel:      stopChannel,
 		InventoryToSend:  models.NewInv(),
+		SentGetAddr:      false,
 		commandHandlers:  structures.NewBytesMap[[]CommandHandler](),
 		reader:           reader,
 		sender:           sender,
@@ -119,6 +126,17 @@ func (peer *Peer) AddCommandHandler(command [12]byte, commandHandler CommandHand
 	}
 
 	peer.commandHandlers.Put(command[:], []CommandHandler{commandHandler})
+}
+
+func (peer *Peer) SetPeerAddress() error {
+	ip, port, err := ip_utils.ConnToIpAndPort(peer.Conn)
+	if err != nil {
+		return err
+	}
+
+	peer.Address.Ip = ip
+	peer.Address.Port = port
+	return nil
 }
 
 func (peer *Peer) Disconnect() {
@@ -197,9 +215,13 @@ func (peer *Peer) sendData() {
 	tickerData := time.NewTicker(sendDataInterval)
 	defer tickerData.Stop()
 
-	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
+	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.PingInterval) * time.Second
 	tickerPing := time.NewTicker(pingInterval)
 	defer tickerPing.Stop()
+
+	getAddrInterval := time.Duration(config.GlobalConfig.NetworkConfig.GetAddrInterval) * time.Second
+	tickerGetAddr := time.NewTicker(getAddrInterval)
+	defer tickerGetAddr.Stop()
 
 	for {
 		select {
@@ -209,6 +231,8 @@ func (peer *Peer) sendData() {
 			peer.maybeSendPing()
 		case <-tickerData.C:
 			peer.sendInventory()
+		case <-tickerGetAddr.C:
+			peer.maybeSendGetAddr()
 		}
 	}
 }
@@ -252,6 +276,18 @@ func (peer *Peer) maybeSendPing() {
 	case <-peer.StopChannel:
 		return
 	case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
+	}
+}
+
+func (peer *Peer) maybeSendGetAddr() {
+	if peer.SentGetAddr {
+		return
+	}
+
+	select {
+	case <-peer.StopChannel:
+		return
+	case peer.SendChannel <- *models.NewGetAddrMessage():
 	}
 }
 
