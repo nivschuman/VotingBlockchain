@@ -191,3 +191,11 @@ func (address *Address) IsRoutable() bool {
 func (address *Address) String() string {
 	return fmt.Sprintf("Address(IP=%s, Port=%d, NodeType=%d)", address.Ip.String(), address.Port, address.NodeType)
 }
+
+func (a *Address) Equals(other *Address) bool {
+	if a == nil || other == nil {
+		return false
+	}
+
+	return a.Ip.Equal(other.Ip) && a.Port == other.Port
+}

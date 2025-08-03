@@ -3,6 +3,7 @@ package nodes
 import (
 	"bytes"
 	"log"
+	"net"
 	"sync"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
@@ -28,7 +29,7 @@ type FullNode struct {
 func NewFullNode(mine bool) *FullNode {
 	fullNode := &FullNode{}
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
+	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
 	port := config.GlobalConfig.NetworkConfig.Port
 	fullNode.network = network.NewNetwork(ip, port)
 	fullNode.network.AddCommandHandler(models.CommandGetBlocks, fullNode.processGetBlocks)
@@ -38,7 +39,7 @@ func NewFullNode(mine bool) *FullNode {
 	fullNode.network.AddCommandHandler(models.CommandInv, fullNode.processInv)
 	fullNode.network.AddCommandHandler(models.CommandBlock, fullNode.processBlock)
 
-	fullNode.miner = mining.NewMiner(&fullNode.network.NetworkTime)
+	fullNode.miner = mining.NewMiner(fullNode.network.GetNetworkTime)
 	fullNode.miner.AddHandler(fullNode.processMinedBlock)
 	fullNode.mine = mine
 
@@ -447,7 +448,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 
 func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be less than the network adjusted time +2 hours.
-	if block.Header.Timestamp > fullNode.network.NetworkTime.Load()+2*60*60 {
+	if block.Header.Timestamp > fullNode.network.GetNetworkTime()+2*60*60 {
 		return false, nil
 	}
 

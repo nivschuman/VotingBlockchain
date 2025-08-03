@@ -5,7 +5,6 @@ import (
 	"log"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
@@ -16,7 +15,7 @@ import (
 type BlockHandler func(block *data_models.Block)
 
 type Miner struct {
-	networkTime *atomic.Int64
+	getNetworkTime func() int64
 
 	handlers    []BlockHandler
 	handlersMux sync.Mutex
@@ -26,10 +25,10 @@ type Miner struct {
 	wg          sync.WaitGroup
 }
 
-func NewMiner(networkTime *atomic.Int64) *Miner {
+func NewMiner(getNetworkTime func() int64) *Miner {
 	return &Miner{
-		stopChannel: make(chan bool),
-		networkTime: networkTime,
+		stopChannel:    make(chan bool),
+		getNetworkTime: getNetworkTime,
 	}
 }
 
@@ -74,7 +73,7 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 
 	log.Printf("|Miner| Started mining block")
 	blockTemplate.Header.Nonce = 0
-	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.networkTime.Load())
+	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 	for !blockTemplate.Header.IsHashBelowTarget() {
 		select {
 		case <-miner.stopChannel:
@@ -93,7 +92,7 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 			}
 
 			if blockTemplate.Header.Nonce&0x3ffff == 0 {
-				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.networkTime.Load())
+				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 			}
 
 			if !bytes.Equal(blockTemplate.Header.PreviousBlockId, repos.GlobalBlockRepository.ActiveChainTipId) {

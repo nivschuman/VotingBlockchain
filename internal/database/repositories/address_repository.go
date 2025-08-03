@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -71,24 +70,18 @@ func (repo *AddressRepository) UpdateLastFailed(address *networking_models.Addre
 		Update("last_failed", lastFailed).Error
 }
 
-func (repo *AddressRepository) GetAddresses(limit int, excludeIPs []net.IP, excludePorts []uint16) ([]*networking_models.Address, error) {
+func (repo *AddressRepository) GetAddresses(limit int, excludedAddresses []*networking_models.Address) ([]*networking_models.Address, error) {
 	whereClauses := []string{}
 	args := make([]any, 0)
 
-	if excludeIPs != nil {
-		ipPlaceholders := strings.TrimRight(strings.Repeat("?,", len(excludeIPs)), ",")
-		whereClauses = append(whereClauses, fmt.Sprintf("ip NOT IN (%s)", ipPlaceholders))
-		for _, ip := range excludeIPs {
-			args = append(args, ip.String())
+	if len(excludedAddresses) > 0 {
+		pairs := make([]string, len(excludedAddresses))
+		for i, addr := range excludedAddresses {
+			pairs[i] = "(ip != ? OR port != ?)"
+			args = append(args, addr.Ip.String(), addr.Port)
 		}
-	}
 
-	if excludePorts != nil {
-		portPlaceholders := strings.TrimRight(strings.Repeat("?,", len(excludePorts)), ",")
-		whereClauses = append(whereClauses, fmt.Sprintf("port NOT IN (%s)", portPlaceholders))
-		for _, port := range excludePorts {
-			args = append(args, port)
-		}
+		whereClauses = append(whereClauses, strings.Join(pairs, " AND "))
 	}
 
 	whereSQL := ""

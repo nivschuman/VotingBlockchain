@@ -5,7 +5,6 @@ import (
 	"net"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
@@ -26,7 +25,8 @@ type Network struct {
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
 
-	NetworkTime atomic.Int64
+	networkTimeOffset      int64
+	networkTimeOffsetMutex sync.Mutex
 
 	commandHandlersMutex sync.Mutex
 	commandHandlers      *structures.BytesMap[peer.CommandHandler]
@@ -35,7 +35,7 @@ type Network struct {
 	wg          sync.WaitGroup
 }
 
-func NewNetwork(ip string, port uint16) *Network {
+func NewNetwork(ip net.IP, port uint16) *Network {
 	network := &Network{}
 	network.Listener = connectors.NewListener(ip, port, network.handleConnection)
 	network.Dialer = connectors.NewDialer()
@@ -74,6 +74,13 @@ func (network *Network) AddCommandHandler(command [12]byte, handler peer.Command
 	defer network.commandHandlersMutex.Unlock()
 
 	network.commandHandlers.Put(command[:], handler)
+}
+
+func (network *Network) GetNetworkTime() int64 {
+	network.networkTimeOffsetMutex.Lock()
+	defer network.networkTimeOffsetMutex.Unlock()
+
+	return time.Now().Add(time.Duration(network.networkTimeOffset) * time.Second).Unix()
 }
 
 func (network *Network) handleConnection(conn net.Conn, initializer bool) {
@@ -133,7 +140,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	network.Peers[conn.RemoteAddr().String()] = p
 
 	//update network time
-	network.setNetworkTime()
+	network.setNetworkTimeOffset()
 
 	//attach handlers to peer
 	network.commandHandlersMutex.Lock()
@@ -154,20 +161,22 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	p.StartProcessing()
 }
 
-func (network *Network) setNetworkTime() {
+func (network *Network) setNetworkTimeOffset() {
+	network.networkTimeOffsetMutex.Lock()
+	defer network.networkTimeOffsetMutex.Unlock()
+
 	offsets := make([]int64, 0, len(network.Peers))
 	for _, peer := range network.Peers {
 		offsets = append(offsets, peer.PeerDetails.TimeOffset)
 	}
 
 	if len(offsets) == 0 {
-		network.NetworkTime.Store(time.Now().Unix())
+		network.networkTimeOffset = 0
 		return
 	}
 
 	slices.Sort(offsets)
-	medianOffset := offsets[len(offsets)/2]
-	network.NetworkTime.Store(time.Now().Add(time.Duration(medianOffset) * time.Second).Unix())
+	network.networkTimeOffset = offsets[len(offsets)/2]
 }
 
 func (network *Network) dialPeers() {
@@ -191,16 +200,16 @@ func (network *Network) dialPeers() {
 				}
 
 				neededAddresses := config.GlobalConfig.NetworkConfig.MaxNumberOfConnections - len(network.Peers)
-				excludedIps := make([]net.IP, 0)
-				excludedPorts := make([]uint16, 0)
 
+				excludedAddresses := make([]*models.Address, len(network.Peers))
+				idx := 0
 				for _, peer := range network.Peers {
-					excludedIps = append(excludedIps, peer.Address.Ip)
-					excludedPorts = append(excludedPorts, peer.Address.Port)
+					excludedAddresses[idx] = peer.Address
+					idx++
 				}
 				network.PeersMutex.RUnlock()
 
-				addresses, err := repositories.GlobalAddressRepository.GetAddresses(neededAddresses, excludedIps, excludedPorts)
+				addresses, err := repositories.GlobalAddressRepository.GetAddresses(neededAddresses, excludedAddresses)
 				if err != nil {
 					log.Printf("|Network| Failed to get addresses: %v", err)
 					continue
@@ -259,7 +268,7 @@ func (network *Network) removePeers() {
 					peer.Disconnect()
 					delete(network.Peers, peer.Conn.RemoteAddr().String())
 				}
-				network.setNetworkTime()
+				network.setNetworkTimeOffset()
 				network.PeersMutex.Unlock()
 			}
 		}
@@ -298,9 +307,8 @@ func (network *Network) processPong(fromPeer *peer.Peer, message *models.Message
 }
 
 func (network *Network) processGetAddr(fromPeer *peer.Peer, message *models.Message) {
-	excludedIps := []net.IP{fromPeer.Address.Ip}
-	excludedPorts := []uint16{fromPeer.Address.Port}
-	addresses, err := repositories.GlobalAddressRepository.GetAddresses(models.MAX_ADDR_SIZE, excludedIps, excludedPorts)
+	excludedAddresses := []*models.Address{fromPeer.Address}
+	addresses, err := repositories.GlobalAddressRepository.GetAddresses(models.MAX_ADDR_SIZE, excludedAddresses)
 
 	if err != nil {
 		log.Printf("|Network| Failed to get addresses for peer %s: %v", fromPeer.String(), err)
@@ -326,6 +334,9 @@ func (network *Network) processGetAddr(fromPeer *peer.Peer, message *models.Mess
 }
 
 func (network *Network) processAddr(fromPeer *peer.Peer, message *models.Message) {
+	fromPeer.SentGetAddrMutex.Lock()
+	defer fromPeer.SentGetAddrMutex.Unlock()
+
 	addr, err := models.AddrFromBytes(message.Payload)
 	if err != nil {
 		log.Printf("|Network| Failed to parse addr message of peer %s: %v", fromPeer.String(), err)
@@ -341,6 +352,8 @@ func (network *Network) processAddr(fromPeer *peer.Peer, message *models.Message
 		log.Printf("|Network| Peer %s sent addr without get addr request", fromPeer.String())
 		return
 	}
+
+	fromPeer.SentGetAddr = false
 
 	for _, address := range addr.Addresses {
 		err := network.addAddress(address)

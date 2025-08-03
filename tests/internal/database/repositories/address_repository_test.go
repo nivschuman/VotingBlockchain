@@ -43,21 +43,21 @@ func TestGetAddresses(t *testing.T) {
 		}
 	}
 
-	excludeIPs := []net.IP{net.ParseIP("192.168.1.1")}
-	excludePorts := []uint16{8334}
+	excludedAddresses := []*networking_models.Address{
+		{Ip: net.ParseIP("192.168.1.1"), Port: 8333},
+		{Ip: net.ParseIP("2001:db8::1"), Port: 8334},
+	}
 
-	addresses, err := repositories.GlobalAddressRepository.GetAddresses(10, excludeIPs, excludePorts)
+	addresses, err := repositories.GlobalAddressRepository.GetAddresses(10, excludedAddresses)
 	if err != nil {
 		t.Fatalf("failed to get addresses: %v", err)
 	}
 
 	for _, addr := range addresses {
-		if addr.Ip.String() == "192.168.1.1" {
-			t.Fatalf("excluded ip was returned")
-		}
-
-		if addr.Port == uint16(8334) {
-			t.Fatalf("excluded port was returned")
+		for _, excludedAddr := range excludedAddresses {
+			if addr.Equals(excludedAddr) {
+				t.Fatalf("excluded ip was returned")
+			}
 		}
 	}
 

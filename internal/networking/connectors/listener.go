@@ -11,13 +11,13 @@ import (
 type ConnectionHandler func(conn net.Conn, initalizer bool)
 
 type Listener struct {
-	Ip                string            //ip to listen on
+	Ip                net.IP            //ip to listen on
 	Port              uint16            //port to listen on
 	ConnectionHandler ConnectionHandler //function to handle received connections
 	ln                net.Listener
 }
 
-func NewListener(ip string, port uint16, connectionHandler ConnectionHandler) *Listener {
+func NewListener(ip net.IP, port uint16, connectionHandler ConnectionHandler) *Listener {
 	return &Listener{
 		Ip:                ip,
 		Port:              port,
@@ -26,7 +26,7 @@ func NewListener(ip string, port uint16, connectionHandler ConnectionHandler) *L
 }
 
 func (listener *Listener) Listen(wg *sync.WaitGroup) {
-	address := net.JoinHostPort(listener.Ip, fmt.Sprint(listener.Port))
+	address := net.JoinHostPort(listener.Ip.String(), fmt.Sprint(listener.Port))
 
 	var err error
 	listener.ln, err = net.Listen("tcp", address)
@@ -40,7 +40,7 @@ func (listener *Listener) Listen(wg *sync.WaitGroup) {
 			conn, err := listener.ln.Accept()
 
 			if errors.Is(err, net.ErrClosed) {
-				log.Printf("|Listener| stopping listener on address %s", address)
+				log.Printf("|Listener| Stopping listener on address %s", address)
 				wg.Done()
 				return
 			}
