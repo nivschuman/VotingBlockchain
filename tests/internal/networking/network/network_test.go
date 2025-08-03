@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestSendPingToNetwork(t *testing.T) {
-	ip := config.GlobalConfig.NetworkConfig.Ip
+	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
 	port := config.GlobalConfig.NetworkConfig.Port
 	network := network.NewNetwork(ip, port)
 	network.Start()
@@ -41,7 +41,7 @@ func TestSendPingToNetwork(t *testing.T) {
 		network.Stop()
 	})
 
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		t.Fatalf("Failed to dial network: %v", err)
@@ -80,7 +80,7 @@ func TestSendPingToNetwork(t *testing.T) {
 }
 
 func TestSendGetAddrToNetwork(t *testing.T) {
-	ip := config.GlobalConfig.NetworkConfig.Ip
+	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
 	port := config.GlobalConfig.NetworkConfig.Port
 	network := network.NewNetwork(ip, port)
 	network.Start()
@@ -89,7 +89,7 @@ func TestSendGetAddrToNetwork(t *testing.T) {
 		network.Stop()
 	})
 
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		t.Fatalf("Failed to dial network: %v", err)

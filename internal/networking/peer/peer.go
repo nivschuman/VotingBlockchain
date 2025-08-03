@@ -38,9 +38,11 @@ type Peer struct {
 	InventoryToSendMutex sync.Mutex
 	InventoryToSend      *models.Inv
 
-	Address     *models.Address
-	LastSeen    *time.Time
-	SentGetAddr bool
+	SentGetAddrMutex sync.Mutex
+	SentGetAddr      bool
+
+	Address  *models.Address
+	LastSeen *time.Time
 
 	commandHandlersMutex sync.Mutex
 	commandHandlers      *structures.BytesMap[[]CommandHandler]
@@ -280,6 +282,9 @@ func (peer *Peer) maybeSendPing() {
 }
 
 func (peer *Peer) maybeSendGetAddr() {
+	peer.SentGetAddrMutex.Lock()
+	defer peer.SentGetAddrMutex.Unlock()
+
 	if peer.SentGetAddr {
 		return
 	}
@@ -288,6 +293,7 @@ func (peer *Peer) maybeSendGetAddr() {
 	case <-peer.StopChannel:
 		return
 	case peer.SendChannel <- *models.NewGetAddrMessage():
+		peer.SentGetAddr = true
 	}
 }
 

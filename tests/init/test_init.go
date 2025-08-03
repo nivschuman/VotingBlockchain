@@ -13,7 +13,7 @@ import (
 )
 
 func SetupTests() {
-	setupConstants()
+	setupTestingConstants()
 
 	testsRoot, err := getParentDirectory("tests")
 	if err != nil {
@@ -64,7 +64,16 @@ func CloseTestDatabase() {
 	}
 }
 
-func setupConstants() {
+func SetupTestEnvironmentConstants() {
+	difficulty.MINIMUM_DIFFICULTY = uint32(0x1d80ffff)
+	difficulty.TARGET_SPACING = int64(5 * 60)
+	difficulty.TARGET_TIMESPAN = 6 * difficulty.TARGET_SPACING
+	difficulty.INTERVAL = difficulty.TARGET_TIMESPAN / difficulty.TARGET_SPACING
+	difficulty.MIN_TIMESPAN = difficulty.TARGET_TIMESPAN / 4
+	difficulty.MAX_TIMESPAN = difficulty.TARGET_TIMESPAN * 4
+}
+
+func setupTestingConstants() {
 	difficulty.MINIMUM_DIFFICULTY = uint32(0x207fffff)
 	difficulty.TARGET_TIMESPAN = int64(10 * 60)
 	difficulty.TARGET_SPACING = int64(1 * 60)
