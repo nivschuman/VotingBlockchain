@@ -551,6 +551,36 @@ func (blockRepository *BlockRepository) SetActiveChainTipId() error {
 	return nil
 }
 
+func (blockRepository *BlockRepository) GetActiveBlocksPaged(searchText string, offset int, pageSize int, sortAsc bool) ([]*db_models.BlockDB, int64, error) {
+	var blocks []*db_models.BlockDB
+	var total int64
+
+	query := blockRepository.db.Model(&db_models.BlockDB{}).Where("in_active_chain = 1")
+
+	if searchText != "" {
+		likeQuery := "%" + searchText + "%"
+		query = query.Where("hex(block_header_id) LIKE ?", likeQuery)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	order := "height DESC"
+	if sortAsc {
+		order = "height ASC"
+	}
+
+	if err := query.Preload("BlockHeader").Order(order).
+		Offset(offset).
+		Limit(pageSize).
+		Find(&blocks).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return blocks, total, nil
+}
+
 func (blockRepository *BlockRepository) reorganizeChain(tx *gorm.DB, newTipId []byte) error {
 	var forkPoint []byte
 	oldTipId := blockRepository.ActiveChainTipId

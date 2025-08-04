@@ -1,0 +1,14 @@
+{
+  "go.buildFlags": ["-tags=windows"],
+  "go.testEnvVars": {
+    "CGO_ENABLED": "1"
+  },
+  "gopls": {
+    "directoryFilters": [
+      "-**/fyne.io",
+      "-**/gl-js",
+      "-**/glfw-js",
+      "-**/vendor"
+    ]
+  }
+}

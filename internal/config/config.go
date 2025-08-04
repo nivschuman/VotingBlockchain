@@ -11,6 +11,7 @@ type Config struct {
 	NodeConfig       NodeConfig       `yaml:"node"`
 	GovernmentConfig GovernmentConfig `yaml:"government"`
 	MinerConfig      MinerConfig      `yaml:"miner"`
+	UiConfig         UiConfig         `yaml:"ui"`
 }
 
 var GlobalConfig *Config = nil
