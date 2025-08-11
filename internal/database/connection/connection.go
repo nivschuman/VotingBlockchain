@@ -16,19 +16,6 @@ var modelsToMigrate = []any{
 	&models.AddressDB{},
 }
 
-var GlobalDB *gorm.DB = nil
-
-func InitializeGlobalDB(dbFile string) error {
-	if GlobalDB != nil {
-		return nil
-	}
-
-	var err error
-	GlobalDB, err = GetDatabaseConnection(dbFile)
-
-	return err
-}
-
 func GetDatabaseConnection(dbFile string) (*gorm.DB, error) {
 	db, err := gorm.Open(sqlite.Open(dbFile), config.GetGormConfig())
 	if err != nil {

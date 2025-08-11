@@ -8,25 +8,26 @@ import (
 	"gorm.io/gorm"
 )
 
-type TransactionRepository struct {
+type TransactionRepository interface {
+	TransactionsValidInChain(chainTipId []byte, transactions []*models.Transaction) (bool, error)
+	GetTransaction(txId []byte) (*models.Transaction, error)
+	GetTransactions(ids *structures.BytesSet) ([]*models.Transaction, error)
+	GetMissingTransactionIds(ids *structures.BytesSet) (*structures.BytesSet, error)
+	InsertIfNotExists(transaction *models.Transaction) error
+	GetMempool(limit int) ([]*models.Transaction, error)
+	TransactionValidInActiveChain(transaction *models.Transaction) (bool, error)
+	InsertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error
+}
+
+type TransactionRepositoryImpl struct {
 	db *gorm.DB
 }
 
-var GlobalTransactionRepository *TransactionRepository
-
-func InitializeGlobalTransactionRepository(db *gorm.DB) error {
-	if GlobalTransactionRepository != nil {
-		return nil
-	}
-
-	GlobalTransactionRepository = &TransactionRepository{
-		db: db,
-	}
-
-	return nil
+func NewTransactionRepositoryImpl(db *gorm.DB) *TransactionRepositoryImpl {
+	return &TransactionRepositoryImpl{db: db}
 }
 
-func (repo *TransactionRepository) TransactionsValidInChain(chainTipId []byte, transactions []*models.Transaction) (bool, error) {
+func (repo *TransactionRepositoryImpl) TransactionsValidInChain(chainTipId []byte, transactions []*models.Transaction) (bool, error) {
 	currentId := chainTipId
 
 	voterPublicKeys := structures.NewBytesSet()
@@ -65,7 +66,7 @@ func (repo *TransactionRepository) TransactionsValidInChain(chainTipId []byte, t
 	return true, nil
 }
 
-func (repo *TransactionRepository) GetTransaction(txId []byte) (*models.Transaction, error) {
+func (repo *TransactionRepositoryImpl) GetTransaction(txId []byte) (*models.Transaction, error) {
 	var txDB db_models.TransactionDB
 	result := repo.db.Where("id = ?", txId).First(&txDB)
 
@@ -76,7 +77,7 @@ func (repo *TransactionRepository) GetTransaction(txId []byte) (*models.Transact
 	return mapping.TransactionDBToTransaction(&txDB), nil
 }
 
-func (repo *TransactionRepository) GetTransactions(ids *structures.BytesSet) ([]*models.Transaction, error) {
+func (repo *TransactionRepositoryImpl) GetTransactions(ids *structures.BytesSet) ([]*models.Transaction, error) {
 	var transactionsDB []db_models.TransactionDB
 	result := repo.db.Where("id IN (?)", ids.ToBytesSlice()).Find(&transactionsDB)
 
@@ -93,7 +94,7 @@ func (repo *TransactionRepository) GetTransactions(ids *structures.BytesSet) ([]
 	return transactions, nil
 }
 
-func (repo *TransactionRepository) GetMissingTransactionIds(ids *structures.BytesSet) (*structures.BytesSet, error) {
+func (repo *TransactionRepositoryImpl) GetMissingTransactionIds(ids *structures.BytesSet) (*structures.BytesSet, error) {
 	transactionIds := ids.ToBytesSlice()
 
 	if len(transactionIds) == 0 {
@@ -121,7 +122,7 @@ func (repo *TransactionRepository) GetMissingTransactionIds(ids *structures.Byte
 	return missingIds, nil
 }
 
-func (repo *TransactionRepository) InsertIfNotExists(transaction *models.Transaction) error {
+func (repo *TransactionRepositoryImpl) InsertIfNotExists(transaction *models.Transaction) error {
 	return repo.db.Transaction(func(tx *gorm.DB) error {
 		existingTransaction := &db_models.TransactionDB{}
 		result := tx.Where("id = ?", transaction.Id).Find(existingTransaction)
@@ -141,7 +142,7 @@ func (repo *TransactionRepository) InsertIfNotExists(transaction *models.Transac
 	})
 }
 
-func (repo *TransactionRepository) GetMempool(limit int) ([]*models.Transaction, error) {
+func (repo *TransactionRepositoryImpl) GetMempool(limit int) ([]*models.Transaction, error) {
 	var transactionsDB []*db_models.TransactionDB
 
 	subquery := repo.db.
@@ -175,7 +176,7 @@ func (repo *TransactionRepository) GetMempool(limit int) ([]*models.Transaction,
 	return transactions, nil
 }
 
-func (repo *TransactionRepository) TransactionValidInActiveChain(transaction *models.Transaction) (bool, error) {
+func (repo *TransactionRepositoryImpl) TransactionValidInActiveChain(transaction *models.Transaction) (bool, error) {
 	var count int64
 	err := repo.db.Table("transactions t").
 		Joins("JOIN transactions_blocks tb ON tb.transaction_id = t.id").
@@ -194,7 +195,7 @@ func (repo *TransactionRepository) TransactionValidInActiveChain(transaction *mo
 	return true, nil
 }
 
-func (repo *TransactionRepository) insertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error {
+func (repo *TransactionRepositoryImpl) InsertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error {
 	existingTransaction := &db_models.TransactionDB{}
 	result := tx.Where("id = ?", transaction.Id).Find(existingTransaction)
 

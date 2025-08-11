@@ -6,11 +6,18 @@ import (
 	"os"
 	"path/filepath"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
-	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
+	"github.com/nivschuman/VotingBlockchain/internal/config"
+	database "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
+	"gorm.io/gorm"
 )
+
+var TestConfig *config.Config
+var TestDb *gorm.DB
+var TestBlockRepository repositories.BlockRepository
+var TestTransactionRepository repositories.TransactionRepository
+var TestAddressRepository repositories.AddressRepository
 
 func SetupTests() {
 	setupTestingConstants()
@@ -25,40 +32,46 @@ func SetupTests() {
 		log.Fatalf("Failed to get change dir to project root: %v", err)
 	}
 
-	err = config.InitializeGlobalConfig("config/config-test.yml")
+	TestConfig, err = config.LoadConfigFromFile("config/config-test.yml")
 	if err != nil {
-		log.Fatalf("Failed to initialize global config: %v", err)
+		log.Fatalf("Failed to initialize test config: %v", err)
 	}
 }
 
 func SetupTestsDatabase() {
-	err := db.InitializeGlobalDB(":memory:")
+	var err error
+
+	TestDb, err = database.GetDatabaseConnection(":memory:")
 	if err != nil {
-		log.Fatalf("Failed to initialize db: %v", err)
+		log.Fatalf("Failed to get database connection: %v", err)
 	}
 
-	err = repositories.InitializeGlobalRepositories(db.GlobalDB)
+	TestTransactionRepository = repositories.NewTransactionRepositoryImpl(TestDb)
+	TestBlockRepository = repositories.NewBlockRepositoryImpl(TestDb, TestTransactionRepository)
+	TestAddressRepository = repositories.NewAddressRepositoryImpl(TestDb)
+
+	err = TestBlockRepository.Initialize()
 	if err != nil {
-		log.Fatalf("Failed to initialize repositories: %v", err)
+		log.Fatalf("Failed to initialize test block repository: %v", err)
 	}
 
 	ResetTestDatabase()
 }
 
 func ResetTestDatabase() {
-	err := db.ResetDatabase(db.GlobalDB)
+	err := database.ResetDatabase(TestDb)
 	if err != nil {
-		log.Fatalf("Failed to reset db: %v", err)
+		log.Fatalf("Failed to reset test database: %v", err)
 	}
 
-	err = repositories.GlobalBlockRepository.Setup()
+	err = TestBlockRepository.Initialize()
 	if err != nil {
-		log.Fatalf("Failed to setup block repository: %v", err)
+		log.Fatalf("Failed to initialize test block repository: %v", err)
 	}
 }
 
 func CloseTestDatabase() {
-	err := db.CloseDatabaseConnection(db.GlobalDB)
+	err := database.CloseDatabaseConnection(TestDb)
 	if err != nil {
 		log.Fatalf("Failed to close test database: %v", err)
 	}

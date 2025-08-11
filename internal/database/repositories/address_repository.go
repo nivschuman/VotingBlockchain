@@ -11,25 +11,23 @@ import (
 	"gorm.io/gorm"
 )
 
-type AddressRepository struct {
+type AddressRepository interface {
+	AddressExists(address *networking_models.Address) (bool, error)
+	InsertIfNotExists(address *networking_models.Address) error
+	UpdateLastSeen(address *networking_models.Address, lastSeen *time.Time) error
+	UpdateLastFailed(address *networking_models.Address, lastFailed *time.Time) error
+	GetAddresses(limit int, excludedAddresses []*networking_models.Address) ([]*networking_models.Address, error)
+}
+
+type AddressRepositoryImpl struct {
 	db *gorm.DB
 }
 
-var GlobalAddressRepository *AddressRepository
-
-func InitializeGlobalAddressRepository(db *gorm.DB) error {
-	if GlobalAddressRepository != nil {
-		return nil
-	}
-
-	GlobalAddressRepository = &AddressRepository{
-		db: db,
-	}
-
-	return nil
+func NewAddressRepositoryImpl(db *gorm.DB) *AddressRepositoryImpl {
+	return &AddressRepositoryImpl{db: db}
 }
 
-func (repo *AddressRepository) AddressExists(address *networking_models.Address) (bool, error) {
+func (repo *AddressRepositoryImpl) AddressExists(address *networking_models.Address) (bool, error) {
 	var count int64
 	result := repo.db.Model(&db_models.AddressDB{}).
 		Where("ip = ? AND port = ?", address.Ip.String(), address.Port).
@@ -42,7 +40,7 @@ func (repo *AddressRepository) AddressExists(address *networking_models.Address)
 	return count > 0, nil
 }
 
-func (repo *AddressRepository) InsertIfNotExists(address *networking_models.Address) error {
+func (repo *AddressRepositoryImpl) InsertIfNotExists(address *networking_models.Address) error {
 	existingAddress := &db_models.AddressDB{}
 	result := repo.db.Where("ip = ? AND port = ?", address.Ip.String(), address.Port).Find(existingAddress)
 
@@ -58,19 +56,19 @@ func (repo *AddressRepository) InsertIfNotExists(address *networking_models.Addr
 	return nil
 }
 
-func (repo *AddressRepository) UpdateLastSeen(address *networking_models.Address, lastSeen *time.Time) error {
+func (repo *AddressRepositoryImpl) UpdateLastSeen(address *networking_models.Address, lastSeen *time.Time) error {
 	return repo.db.Model(&db_models.AddressDB{}).
 		Where("ip = ? AND port = ?", address.Ip.String(), address.Port).
 		Update("last_seen", lastSeen).Error
 }
 
-func (repo *AddressRepository) UpdateLastFailed(address *networking_models.Address, lastFailed *time.Time) error {
+func (repo *AddressRepositoryImpl) UpdateLastFailed(address *networking_models.Address, lastFailed *time.Time) error {
 	return repo.db.Model(&db_models.AddressDB{}).
 		Where("ip = ? AND port = ?", address.Ip.String(), address.Port).
 		Update("last_failed", lastFailed).Error
 }
 
-func (repo *AddressRepository) GetAddresses(limit int, excludedAddresses []*networking_models.Address) ([]*networking_models.Address, error) {
+func (repo *AddressRepositoryImpl) GetAddresses(limit int, excludedAddresses []*networking_models.Address) ([]*networking_models.Address, error) {
 	whereClauses := []string{}
 	args := make([]any, 0)
 

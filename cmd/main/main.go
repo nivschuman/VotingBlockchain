@@ -8,24 +8,25 @@ import (
 	"syscall"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
-	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	database "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	nodes "github.com/nivschuman/VotingBlockchain/internal/nodes"
 	app "github.com/nivschuman/VotingBlockchain/internal/ui/app"
 	test "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
 func main() {
+	//Load configuration
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
 		configFile = "config/config.yml"
 	}
 
-	err := config.InitializeGlobalConfig(configFile)
+	conf, err := config.LoadConfigFromFile(configFile)
 	if err != nil {
 		log.Fatalf("Failed to load config file: %v", err)
 	}
 
+	//Load database
 	dbFile := os.Getenv("DATABASE_FILE")
 	if dbFile == "" {
 		dbFile = "databases/blockchain.db"
@@ -38,36 +39,43 @@ func main() {
 		test.SetupTestEnvironmentConstants()
 	}
 
-	err = db.InitializeGlobalDB(dbFile)
+	db, err := database.GetDatabaseConnection(dbFile)
 	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Fatalf("Failed to get database connection: %v", err)
 	}
 
+	//Reset database in test environment
 	if environment == "test" {
-		err = db.ResetDatabase(db.GlobalDB)
+		err = database.ResetDatabase(db)
 		if err != nil {
 			log.Fatalf("Failed to reset test database: %v", err)
 		}
 	}
 
-	err = repositories.InitializeGlobalRepositories(db.GlobalDB)
+	//Database cleanup
+	defer func() {
+		err := database.CloseDatabaseConnection(db)
+		if err != nil {
+			log.Fatalf("Failed to close database connection: %v", err)
+		}
+	}()
+
+	//Build node
+	nodeBuilder, err := nodes.NewNodeBuilderImpl(db, conf)
 	if err != nil {
-		log.Fatalf("Failed to initialize repositories: %v", err)
+		log.Fatalf("Failed to create node builder: %v", err)
 	}
 
-	err = repositories.GlobalBlockRepository.Setup()
+	node, err := nodeBuilder.BuildNode()
 	if err != nil {
-		log.Fatalf("Failed to setup block repository: %v", err)
+		log.Fatalf("Failed to build node: %v", err)
 	}
 
-	node, err := nodes.GlobalNodeFactory.CreateNode(nodes.NodeType(config.GlobalConfig.NodeConfig.Type))
-	if err != nil {
-		log.Fatalf("Failed to create node: %v", err)
-	}
-
+	//Start node
 	go node.Start()
-	if config.GlobalConfig.UiConfig.Enabled {
-		mainApp := app.MainApp()
+	if conf.UiConfig.Enabled {
+		appBuilder := app.NewAppBuilderImpl(db)
+		mainApp := appBuilder.BuildApp()
 		mainApp.Start()
 	} else {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -78,8 +86,4 @@ func main() {
 
 	log.Println("|Main| Shutting down node...")
 	node.Stop()
-	err = db.CloseDatabaseConnection(db.GlobalDB)
-	if err != nil {
-		log.Fatalf("Failed to close database connection: %v", err)
-	}
 }

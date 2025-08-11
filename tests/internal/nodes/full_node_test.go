@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	"github.com/nivschuman/VotingBlockchain/internal/mining"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
+	"github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	nodes "github.com/nivschuman/VotingBlockchain/internal/nodes"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
+	networking_mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 
 func TestMain(m *testing.M) {
@@ -50,25 +51,25 @@ func TestSendMemPoolToFullNode(t *testing.T) {
 		t.Fatalf("failed to create test tx2: %v", err)
 	}
 
-	err = repositories.GlobalTransactionRepository.InsertIfNotExists(tx1)
+	err = inits.TestTransactionRepository.InsertIfNotExists(tx1)
 	if err != nil {
 		t.Fatalf("failed to create insert tx1: %v", err)
 	}
 
-	err = repositories.GlobalTransactionRepository.InsertIfNotExists(tx2)
+	err = inits.TestTransactionRepository.InsertIfNotExists(tx2)
 	if err != nil {
 		t.Fatalf("failed to create insert tx2: %v", err)
 	}
 
-	fullNode := nodes.NewFullNode(false)
+	fullNode := newFullNode()
 	fullNode.Start()
 	t.Cleanup(func() {
 		fullNode.Stop()
 	})
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
-	port := config.GlobalConfig.NetworkConfig.Port
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -120,15 +121,15 @@ func TestSendGetDataToFullNode(t *testing.T) {
 		t.Fatalf("Failed to create get data message: %v", err)
 	}
 
-	fullNode := nodes.NewFullNode(false)
+	fullNode := newFullNode()
 	fullNode.Start()
 	t.Cleanup(func() {
 		fullNode.Stop()
 	})
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
-	port := config.GlobalConfig.NetworkConfig.Port
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -209,15 +210,15 @@ func TestSendTransactionToFullNode(t *testing.T) {
 		t.Fatalf("failed to create test data: %v", err)
 	}
 
-	fullNode := nodes.NewFullNode(false)
+	fullNode := newFullNode()
 	fullNode.Start()
 	t.Cleanup(func() {
 		fullNode.Stop()
 	})
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
-	port := config.GlobalConfig.NetworkConfig.Port
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -241,7 +242,7 @@ func TestSendTransactionToFullNode(t *testing.T) {
 	//wait for transaction to get inserted
 	time.Sleep(time.Second * 1)
 
-	_, err = repositories.GlobalTransactionRepository.GetTransaction(tx.Id)
+	_, err = inits.TestTransactionRepository.GetTransaction(tx.Id)
 	if err != nil {
 		t.Fatalf("Failed get transaction from database: %v", err)
 	}
@@ -254,15 +255,15 @@ func TestSendBlockToFullNode(t *testing.T) {
 		t.Fatalf("failed to create test data: %v", err)
 	}
 
-	fullNode := nodes.NewFullNode(false)
+	fullNode := newFullNode()
 	fullNode.Start()
 	t.Cleanup(func() {
 		fullNode.Stop()
 	})
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
-	port := config.GlobalConfig.NetworkConfig.Port
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -286,7 +287,7 @@ func TestSendBlockToFullNode(t *testing.T) {
 	//wait for block to get inserted
 	time.Sleep(time.Second * 1)
 
-	_, err = repositories.GlobalBlockRepository.GetBlock(block.Header.Id)
+	_, err = inits.TestBlockRepository.GetBlock(block.Header.Id)
 	if err != nil {
 		t.Fatalf("Failed get transaction from database: %v", err)
 	}
@@ -295,15 +296,15 @@ func TestSendBlockToFullNode(t *testing.T) {
 func TestSendAddrToFullNode(t *testing.T) {
 	inits.ResetTestDatabase()
 
-	fullNode := nodes.NewFullNode(false)
+	fullNode := newFullNode()
 	fullNode.Start()
 	t.Cleanup(func() {
 		fullNode.Stop()
 	})
 
-	ip := config.GlobalConfig.NetworkConfig.Ip
-	port := config.GlobalConfig.NetworkConfig.Port
-	address := net.JoinHostPort(ip, fmt.Sprint(port))
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	address := net.JoinHostPort(ip.String(), fmt.Sprint(port))
 
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -332,7 +333,7 @@ func TestSendAddrToFullNode(t *testing.T) {
 	time.Sleep(time.Second * 1)
 
 	for _, address := range addr.Addresses {
-		exists, err := repositories.GlobalAddressRepository.AddressExists(address)
+		exists, err := inits.TestAddressRepository.AddressExists(address)
 		if err != nil {
 			t.Fatalf("Failed to check if address exists: %v", err)
 		}
@@ -364,4 +365,11 @@ func doHandshake(conn net.Conn) {
 	sender.SendMessage(conn, verAckMessage)
 
 	reader.ReadMessage(conn)
+}
+
+func newFullNode() *nodes.FullNode {
+	ntwrk := network.NewNetworkImpl(inits.TestConfig.NetworkConfig.Ip, inits.TestConfig.NetworkConfig.Port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, networking_mocks.MockVersionProvider)
+	miner := mining.NewDisabledMiner()
+
+	return nodes.NewFullNode(ntwrk, miner, inits.TestBlockRepository, inits.TestTransactionRepository, inits.TestConfig.GovernmentConfig.PublicKey)
 }

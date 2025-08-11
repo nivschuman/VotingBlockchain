@@ -3,9 +3,6 @@ package networking_models
 import (
 	"bytes"
 	"encoding/binary"
-	"time"
-
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 )
 
 type Version struct {
@@ -15,6 +12,8 @@ type Version struct {
 	Nonce           uint64 //Random nonce for version packet
 	LastBlockHeight uint32 //Height of last block in active chain of node
 }
+
+type VersionProvider func() (*Version, error)
 
 func (version *Version) AsBytes() []byte {
 	buf := new(bytes.Buffer)
@@ -50,13 +49,4 @@ func VersionFromBytes(bytes []byte) *Version {
 
 func NewVersionMessage(version *Version) *Message {
 	return NewMessage(CommandVersion, version.AsBytes())
-}
-
-func MyVersion() *Version {
-	//TBD add current block height
-	return &Version{
-		ProtocolVersion: config.GlobalConfig.NodeConfig.Version,
-		NodeType:        config.GlobalConfig.NodeConfig.Type,
-		Timestamp:       time.Now().Unix(),
-	}
 }

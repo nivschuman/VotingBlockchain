@@ -69,7 +69,10 @@ func (peer *Peer) DoHandShake() error {
 }
 
 func (peer *Peer) sendVersion() error {
-	myVersion := models.MyVersion()
+	myVersion, err := peer.myVersion()
+	if err != nil {
+		return err
+	}
 
 	if peer.HandshakeDetails.Initializer {
 		n, err := nonce.Generator.GenerateNonce()

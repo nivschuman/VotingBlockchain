@@ -18,28 +18,41 @@ import (
 	"gorm.io/gorm"
 )
 
-type BlockRepository struct {
-	db                    *gorm.DB
+type BlockRepository interface {
+	Initialize() error
+	GetNextWorkRequired(lastBlockId []byte) (uint32, error)
+	HaveBlock(blockId []byte) (bool, error)
+	BlockIsOrphan(block *models.Block) (bool, error)
+	GetMedianTimePast(startBlockId []byte, numberOfBlocks int) (int64, error)
+	GetNextBlocksIds(blockLocator *structures.BlockLocator, stopHash []byte, limit int) (*structures.BytesSet, error)
+	GetActiveChainBlockLocator() (*structures.BlockLocator, error)
+	GetBlockLocator(startBlockId []byte) (*structures.BlockLocator, error)
+	GetBlock(blockId []byte) (*models.Block, error)
+	GetBlocks(ids *structures.BytesSet) ([]*models.Block, error)
+	GetMissingBlockIds(ids *structures.BytesSet) (*structures.BytesSet, error)
+	GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error)
+	InsertIfNotExists(block *models.Block) error
+	GenesisBlock() *models.Block
+	SetActiveChainTipId() error
+	GetActiveChainTipId() []byte
+	GetActiveBlocksPaged(searchText string, offset int, pageSize int, sortAsc bool) ([]*db_models.BlockDB, int64, error)
+	GetActiveChainHeight() (uint64, error)
+}
+
+type BlockRepositoryImpl struct {
 	ActiveChainTipId      []byte
-	TransactionRepository *TransactionRepository
+	db                    *gorm.DB
+	transactionRepository TransactionRepository
 }
 
-var GlobalBlockRepository *BlockRepository
-
-func InitializeGlobalBlockRepository(db *gorm.DB) error {
-	if GlobalBlockRepository != nil {
-		return nil
-	}
-
-	GlobalBlockRepository = &BlockRepository{
+func NewBlockRepositoryImpl(db *gorm.DB, transactionRepository TransactionRepository) *BlockRepositoryImpl {
+	return &BlockRepositoryImpl{
 		db:                    db,
-		TransactionRepository: GlobalTransactionRepository,
+		transactionRepository: transactionRepository,
 	}
-
-	return nil
 }
 
-func (repo *BlockRepository) Setup() error {
+func (repo *BlockRepositoryImpl) Initialize() error {
 	genesisBlock := repo.GenesisBlock()
 	err := repo.InsertIfNotExists(genesisBlock)
 	if err != nil {
@@ -49,7 +62,21 @@ func (repo *BlockRepository) Setup() error {
 	return repo.SetActiveChainTipId()
 }
 
-func (repo *BlockRepository) GetNextWorkRequired(lastBlockId []byte) (uint32, error) {
+func (repo *BlockRepositoryImpl) GetActiveChainHeight() (uint64, error) {
+	var maxHeight uint64
+	err := repo.db.Model(&db_models.BlockDB{}).
+		Where("in_active_chain = ?", true).
+		Select("MAX(height)").
+		Scan(&maxHeight).Error
+
+	if err != nil {
+		return 0, err
+	}
+
+	return maxHeight, nil
+}
+
+func (repo *BlockRepositoryImpl) GetNextWorkRequired(lastBlockId []byte) (uint32, error) {
 	if lastBlockId == nil {
 		return difficulty.MINIMUM_DIFFICULTY, nil
 	}
@@ -104,7 +131,7 @@ func (repo *BlockRepository) GetNextWorkRequired(lastBlockId []byte) (uint32, er
 	return difficulty.TargetToNBits(target), nil
 }
 
-func (repo *BlockRepository) HaveBlock(blockId []byte) (bool, error) {
+func (repo *BlockRepositoryImpl) HaveBlock(blockId []byte) (bool, error) {
 	var count int64
 	result := repo.db.Table("block_headers").Where("block_headers.id = ?", blockId).Count(&count)
 
@@ -115,7 +142,7 @@ func (repo *BlockRepository) HaveBlock(blockId []byte) (bool, error) {
 	return count > 0, nil
 }
 
-func (repo *BlockRepository) BlockIsOrphan(block *models.Block) (bool, error) {
+func (repo *BlockRepositoryImpl) BlockIsOrphan(block *models.Block) (bool, error) {
 	var count int64
 	result := repo.db.Table("block_headers").Where("block_headers.id = ?", block.Header.PreviousBlockId).Count(&count)
 
@@ -126,7 +153,7 @@ func (repo *BlockRepository) BlockIsOrphan(block *models.Block) (bool, error) {
 	return count <= 0, nil
 }
 
-func (repo *BlockRepository) GetMedianTimePast(startBlockId []byte, numberOfBlocks int) (int64, error) {
+func (repo *BlockRepositoryImpl) GetMedianTimePast(startBlockId []byte, numberOfBlocks int) (int64, error) {
 	times := make([]int64, 0, numberOfBlocks)
 	currentId := startBlockId
 
@@ -157,7 +184,7 @@ func (repo *BlockRepository) GetMedianTimePast(startBlockId []byte, numberOfBloc
 	return medianTime, nil
 }
 
-func (repo *BlockRepository) GetNextBlocksIds(blockLocator *structures.BlockLocator, stopHash []byte, limit int) (*structures.BytesSet, error) {
+func (repo *BlockRepositoryImpl) GetNextBlocksIds(blockLocator *structures.BlockLocator, stopHash []byte, limit int) (*structures.BytesSet, error) {
 	ids := blockLocator.Ids()
 
 	var currentId []byte
@@ -208,7 +235,7 @@ func (repo *BlockRepository) GetNextBlocksIds(blockLocator *structures.BlockLoca
 	return blocksIds, nil
 }
 
-func (repo *BlockRepository) GetActiveChainBlockLocator() (*structures.BlockLocator, error) {
+func (repo *BlockRepositoryImpl) GetActiveChainBlockLocator() (*structures.BlockLocator, error) {
 	locator := structures.NewBlockLocator()
 
 	var height uint64
@@ -258,7 +285,7 @@ func (repo *BlockRepository) GetActiveChainBlockLocator() (*structures.BlockLoca
 	return locator, nil
 }
 
-func (repo *BlockRepository) GetBlockLocator(startBlockId []byte) (*structures.BlockLocator, error) {
+func (repo *BlockRepositoryImpl) GetBlockLocator(startBlockId []byte) (*structures.BlockLocator, error) {
 	locator := structures.NewBlockLocator()
 
 	var height uint64
@@ -310,7 +337,7 @@ func (repo *BlockRepository) GetBlockLocator(startBlockId []byte) (*structures.B
 	return locator, nil
 }
 
-func (repo *BlockRepository) GetBlock(blockId []byte) (*models.Block, error) {
+func (repo *BlockRepositoryImpl) GetBlock(blockId []byte) (*models.Block, error) {
 	var blockDB db_models.BlockDB
 	err := repo.db.Preload("BlockHeader").
 		Where("block_header_id = ?", blockId).
@@ -343,7 +370,7 @@ func (repo *BlockRepository) GetBlock(blockId []byte) (*models.Block, error) {
 	return block, nil
 }
 
-func (repo *BlockRepository) GetBlocks(ids *structures.BytesSet) ([]*models.Block, error) {
+func (repo *BlockRepositoryImpl) GetBlocks(ids *structures.BytesSet) ([]*models.Block, error) {
 	var blocksDB []db_models.BlockDB
 	err := repo.db.Preload("BlockHeader").
 		Where("block_header_id IN (?)", ids.ToBytesSlice()).
@@ -380,7 +407,7 @@ func (repo *BlockRepository) GetBlocks(ids *structures.BytesSet) ([]*models.Bloc
 	return blocks, nil
 }
 
-func (repo *BlockRepository) GetMissingBlockIds(ids *structures.BytesSet) (*structures.BytesSet, error) {
+func (repo *BlockRepositoryImpl) GetMissingBlockIds(ids *structures.BytesSet) (*structures.BytesSet, error) {
 	blockIds := ids.ToBytesSlice()
 
 	if len(blockIds) == 0 {
@@ -408,7 +435,7 @@ func (repo *BlockRepository) GetMissingBlockIds(ids *structures.BytesSet) (*stru
 	return missingIds, nil
 }
 
-func (blockRepository *BlockRepository) GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error) {
+func (blockRepository *BlockRepositoryImpl) GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error) {
 	var blockDB db_models.BlockDB
 	err := blockRepository.db.Where("block_header_id = ?", blockHeaderId).First(&blockDB).Error
 
@@ -419,7 +446,7 @@ func (blockRepository *BlockRepository) GetBlockCumulativeWork(blockHeaderId []b
 	return (*big.Int)(&blockDB.CumulativeWork), nil
 }
 
-func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) error {
+func (blockRepository *BlockRepositoryImpl) InsertIfNotExists(block *models.Block) error {
 	return blockRepository.db.Transaction(func(tx *gorm.DB) error {
 		var count int64
 		err := tx.Table("blocks").Where("block_header_id = ?", block.Header.Id).Count(&count).Error
@@ -466,7 +493,7 @@ func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) e
 		}
 
 		for i, transaction := range block.Transactions {
-			if err := blockRepository.TransactionRepository.insertIfNotExistsTransactional(transaction, tx); err != nil {
+			if err := blockRepository.transactionRepository.InsertIfNotExistsTransactional(transaction, tx); err != nil {
 				return err
 			}
 
@@ -501,7 +528,7 @@ func (blockRepository *BlockRepository) InsertIfNotExists(block *models.Block) e
 	})
 }
 
-func (*BlockRepository) GenesisBlock() *models.Block {
+func (blockRepository *BlockRepositoryImpl) GenesisBlock() *models.Block {
 	genesisBlockHeader := &models.BlockHeader{
 		Version:         1,
 		PreviousBlockId: nil,
@@ -520,7 +547,7 @@ func (*BlockRepository) GenesisBlock() *models.Block {
 	}
 }
 
-func (blockRepository *BlockRepository) SetActiveChainTipId() error {
+func (blockRepository *BlockRepositoryImpl) SetActiveChainTipId() error {
 	var tipId []byte
 
 	subQuery := blockRepository.db.
@@ -551,7 +578,11 @@ func (blockRepository *BlockRepository) SetActiveChainTipId() error {
 	return nil
 }
 
-func (blockRepository *BlockRepository) GetActiveBlocksPaged(searchText string, offset int, pageSize int, sortAsc bool) ([]*db_models.BlockDB, int64, error) {
+func (blockRepository *BlockRepositoryImpl) GetActiveChainTipId() []byte {
+	return blockRepository.ActiveChainTipId
+}
+
+func (blockRepository *BlockRepositoryImpl) GetActiveBlocksPaged(searchText string, offset int, pageSize int, sortAsc bool) ([]*db_models.BlockDB, int64, error) {
 	var blocks []*db_models.BlockDB
 	var total int64
 
@@ -581,7 +612,7 @@ func (blockRepository *BlockRepository) GetActiveBlocksPaged(searchText string, 
 	return blocks, total, nil
 }
 
-func (blockRepository *BlockRepository) reorganizeChain(tx *gorm.DB, newTipId []byte) error {
+func (blockRepository *BlockRepositoryImpl) reorganizeChain(tx *gorm.DB, newTipId []byte) error {
 	var forkPoint []byte
 	oldTipId := blockRepository.ActiveChainTipId
 

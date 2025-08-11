@@ -14,20 +14,7 @@ type Config struct {
 	UiConfig         UiConfig         `yaml:"ui"`
 }
 
-var GlobalConfig *Config = nil
-
-func InitializeGlobalConfig(path string) error {
-	if GlobalConfig != nil {
-		return nil
-	}
-
-	var err error
-	GlobalConfig, err = LoadConfigFile(path)
-
-	return err
-}
-
-func LoadConfigFile(path string) (*Config, error) {
+func LoadConfigFromFile(path string) (*Config, error) {
 	config := &Config{}
 
 	file, err := os.Open(path)

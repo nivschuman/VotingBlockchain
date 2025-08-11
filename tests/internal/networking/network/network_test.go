@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	nonce "github.com/nivschuman/VotingBlockchain/internal/networking/utils/nonce"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
+	mocks "github.com/nivschuman/VotingBlockchain/tests/internal/networking/mocks"
 )
 
 func TestMain(m *testing.M) {
@@ -32,9 +32,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestSendPingToNetwork(t *testing.T) {
-	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
-	port := config.GlobalConfig.NetworkConfig.Port
-	network := network.NewNetwork(ip, port)
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	network := network.NewNetworkImpl(ip, port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
 	network.Start()
 
 	t.Cleanup(func() {
@@ -80,9 +80,9 @@ func TestSendPingToNetwork(t *testing.T) {
 }
 
 func TestSendGetAddrToNetwork(t *testing.T) {
-	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
-	port := config.GlobalConfig.NetworkConfig.Port
-	network := network.NewNetwork(ip, port)
+	ip := inits.TestConfig.NetworkConfig.Ip
+	port := inits.TestConfig.NetworkConfig.Port
+	network := network.NewNetworkImpl(ip, port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
 	network.Start()
 
 	t.Cleanup(func() {
