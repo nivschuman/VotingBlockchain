@@ -17,3 +17,6 @@ miner:
 
 government:
   public-key: 03f0d37776bd2b5f887d975888d6c8f6a1f1a1c7c7dfcd9926983db2960fd58d6a
+
+ui:
+  enabled: true

@@ -2,23 +2,20 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	db "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	nodes "github.com/nivschuman/VotingBlockchain/internal/nodes"
+	app "github.com/nivschuman/VotingBlockchain/internal/ui/app"
 	test "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
 func main() {
-	log.Printf("Start number of goroutines: %d", runtime.NumGoroutine())
-
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
 		configFile = "config/config.yml"
@@ -36,7 +33,7 @@ func main() {
 
 	environment := os.Getenv("ENVIRONMENT")
 	if environment == "test" {
-		log.Println("Running in test environment")
+		log.Println("|Main| Running in test environment")
 		dbFile = "databases/blockchain-test.db"
 		test.SetupTestEnvironmentConstants()
 	}
@@ -68,21 +65,21 @@ func main() {
 		log.Fatalf("Failed to create node: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	go node.Start()
+	if config.GlobalConfig.UiConfig.Enabled {
+		mainApp := app.MainApp()
+		mainApp.Start()
+	} else {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
 
-	<-ctx.Done()
+		<-ctx.Done()
+	}
+
+	log.Println("|Main| Shutting down node...")
 	node.Stop()
-
 	err = db.CloseDatabaseConnection(db.GlobalDB)
 	if err != nil {
 		log.Fatalf("Failed to close database connection: %v", err)
 	}
-
-	fmt.Println("End number of goroutines:", runtime.NumGoroutine())
-	buf := make([]byte, 1<<20)
-	stacklen := runtime.Stack(buf, true)
-	log.Printf("Goroutine dump:\n%s", buf[:stacklen])
 }
