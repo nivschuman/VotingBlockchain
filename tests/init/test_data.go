@@ -3,10 +3,8 @@ package test_init
 import (
 	"time"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	hash "github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 )
@@ -82,7 +80,7 @@ func CreateTestData(numberOfBlocks int, transactionsPerBlock int) (*ppk.KeyPair,
 		return nil, nil, nil, err
 	}
 
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	genesisBlock := TestBlockRepository.GenesisBlock()
 	previousBlockId := genesisBlock.Header.Id
 
 	blocks := make([]*models.Block, numberOfBlocks)
@@ -109,7 +107,7 @@ func CreateTestData(numberOfBlocks int, transactionsPerBlock int) (*ppk.KeyPair,
 			return nil, nil, nil, err
 		}
 
-		err = repositories.GlobalBlockRepository.InsertIfNotExists(block)
+		err = TestBlockRepository.InsertIfNotExists(block)
 
 		if err != nil {
 			return nil, nil, nil, err
@@ -131,6 +129,6 @@ func GenerateTestGovernmentKeyPair() (*ppk.KeyPair, error) {
 		return nil, err
 	}
 
-	config.GlobalConfig.GovernmentConfig.PublicKey = keyPair.PublicKey.AsBytes()
+	TestConfig.GovernmentConfig.PublicKey = keyPair.PublicKey.AsBytes()
 	return keyPair, nil
 }

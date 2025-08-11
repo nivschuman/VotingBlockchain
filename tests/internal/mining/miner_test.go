@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	mining "github.com/nivschuman/VotingBlockchain/internal/mining"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
@@ -40,7 +39,7 @@ func TestCreateBlockTemplate(t *testing.T) {
 		t.Fatalf("failed to create test tx1: %v", err)
 	}
 
-	err = repos.GlobalTransactionRepository.InsertIfNotExists(tx1)
+	err = inits.TestTransactionRepository.InsertIfNotExists(tx1)
 	if err != nil {
 		t.Fatalf("failed to insert test tx1: %v", err)
 	}
@@ -50,13 +49,17 @@ func TestCreateBlockTemplate(t *testing.T) {
 		t.Fatalf("failed to create test tx2: %v", err)
 	}
 
-	err = repos.GlobalTransactionRepository.InsertIfNotExists(tx2)
+	err = inits.TestTransactionRepository.InsertIfNotExists(tx2)
 	if err != nil {
 		t.Fatalf("failed to insert test tx2: %v", err)
 	}
 
 	getNetworkTime := func() int64 { return time.Now().Unix() }
-	miner := mining.NewMiner(getNetworkTime)
+	minerProps := mining.MinerProperties{
+		NodeVersion:    inits.TestConfig.NodeConfig.Version,
+		MinerPublicKey: inits.TestConfig.GovernmentConfig.PublicKey,
+	}
+	miner := mining.NewMinerImpl(getNetworkTime, inits.TestBlockRepository, inits.TestTransactionRepository, minerProps)
 
 	template, err := miner.CreateBlockTemplate()
 	if err != nil {
@@ -103,7 +106,11 @@ func TestMineBlockTemplate(t *testing.T) {
 	}
 
 	getNetworkTime := func() int64 { return time.Now().Unix() }
-	miner := mining.NewMiner(getNetworkTime)
+	minerProps := mining.MinerProperties{
+		NodeVersion:    inits.TestConfig.NodeConfig.Version,
+		MinerPublicKey: inits.TestConfig.GovernmentConfig.PublicKey,
+	}
+	miner := mining.NewMinerImpl(getNetworkTime, inits.TestBlockRepository, inits.TestTransactionRepository, minerProps)
 
 	checkBlock := func(block *data_models.Block) {
 		t.Logf("mined block nonce is %d", block.Header.Nonce)

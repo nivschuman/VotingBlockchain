@@ -18,12 +18,25 @@ import (
 
 type PeersMap map[string]*peer.Peer
 
-type Network struct {
+type Network interface {
+	Start()
+	Stop()
+	AddCommandHandler(command [12]byte, handler peer.CommandHandler)
+	GetNetworkTime() int64
+	BroadcastItemToPeers(msgType uint32, id []byte, exceptPeer *peer.Peer)
+}
+
+type NetworkImpl struct {
 	Listener *connectors.Listener
 	Dialer   *connectors.Dialer
 
 	Peers      PeersMap
 	PeersMutex sync.RWMutex
+
+	myVersion     models.VersionProvider
+	networkConfig *config.NetworkConfig
+
+	addressRepository repositories.AddressRepository
 
 	networkTimeOffset      int64
 	networkTimeOffsetMutex sync.Mutex
@@ -35,25 +48,33 @@ type Network struct {
 	wg          sync.WaitGroup
 }
 
-func NewNetwork(ip net.IP, port uint16) *Network {
-	network := &Network{}
+func NewNetworkImpl(
+	ip net.IP,
+	port uint16,
+	addressRepository repositories.AddressRepository,
+	networkConfig *config.NetworkConfig,
+	myVersion models.VersionProvider) *NetworkImpl {
+	network := &NetworkImpl{}
 	network.Listener = connectors.NewListener(ip, port, network.handleConnection)
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
 	network.commandHandlers = structures.NewBytesMap[peer.CommandHandler]()
+	network.addressRepository = addressRepository
+	network.networkConfig = networkConfig
+	network.myVersion = myVersion
 
 	return network
 }
 
-func (network *Network) Start() {
+func (network *NetworkImpl) Start() {
 	log.Print("|Network| Starting")
 	network.Listener.Listen(&network.wg)
 	network.dialPeers()
 	network.removePeers()
 }
 
-func (network *Network) Stop() {
+func (network *NetworkImpl) Stop() {
 	log.Print("|Network| Stopping")
 	close(network.stopChannel)
 	network.Listener.StopListening()
@@ -69,21 +90,45 @@ func (network *Network) Stop() {
 	network.Peers = make(PeersMap)
 }
 
-func (network *Network) AddCommandHandler(command [12]byte, handler peer.CommandHandler) {
+func (network *NetworkImpl) AddCommandHandler(command [12]byte, handler peer.CommandHandler) {
 	network.commandHandlersMutex.Lock()
 	defer network.commandHandlersMutex.Unlock()
 
 	network.commandHandlers.Put(command[:], handler)
 }
 
-func (network *Network) GetNetworkTime() int64 {
+func (network *NetworkImpl) GetNetworkTime() int64 {
 	network.networkTimeOffsetMutex.Lock()
 	defer network.networkTimeOffsetMutex.Unlock()
 
 	return time.Now().Add(time.Duration(network.networkTimeOffset) * time.Second).Unix()
 }
 
-func (network *Network) handleConnection(conn net.Conn, initializer bool) {
+func (network *NetworkImpl) BroadcastItemToPeers(msgType uint32, id []byte, exceptPeer *peer.Peer) {
+	network.PeersMutex.RLock()
+	for _, peer := range network.Peers {
+		if peer != exceptPeer {
+			peer.InventoryToSendMutex.Lock()
+			peer.InventoryToSend.AddItem(models.MSG_TX, id)
+			peer.InventoryToSendMutex.Unlock()
+		}
+	}
+	network.PeersMutex.RUnlock()
+}
+
+func (network *NetworkImpl) createPeerConfig() peer.PeerConfig {
+	sendDataInterval := time.Duration(network.networkConfig.SendDataInterval) * time.Second
+	pingInterval := time.Duration(network.networkConfig.PingInterval) * time.Second
+	getAddrInterval := time.Duration(network.networkConfig.GetAddrInterval) * time.Second
+
+	return peer.PeerConfig{
+		SendDataInterval: sendDataInterval,
+		PingInterval:     pingInterval,
+		GetAddrInterval:  getAddrInterval,
+	}
+}
+
+func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 	network.PeersMutex.Lock()
 	defer network.PeersMutex.Unlock()
 
@@ -93,7 +138,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	}
 
 	//create peer
-	p := peer.NewPeer(conn, initializer)
+	p := peer.NewPeer(conn, initializer, network.createPeerConfig(), network.myVersion)
 	err := p.SetPeerAddress()
 	if err != nil {
 		log.Printf("|Network| Failed to set peer %s address: %v", p.String(), err)
@@ -111,7 +156,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 		p.Disconnect()
 
 		now := time.Now()
-		err := repositories.GlobalAddressRepository.UpdateLastFailed(p.Address, &now)
+		err := network.addressRepository.UpdateLastFailed(p.Address, &now)
 		if err != nil {
 			log.Printf("|Network| Failed to update last failed for address %s: %v", p.Address.String(), err)
 		}
@@ -128,7 +173,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	}
 
 	now := time.Now()
-	err = repositories.GlobalAddressRepository.UpdateLastSeen(p.Address, &now)
+	err = network.addressRepository.UpdateLastSeen(p.Address, &now)
 	if err != nil {
 		log.Printf("|Network| Failed to update last seen for address %s: %v", p.Address.String(), err)
 		p.Disconnect()
@@ -161,7 +206,7 @@ func (network *Network) handleConnection(conn net.Conn, initializer bool) {
 	p.StartProcessing()
 }
 
-func (network *Network) setNetworkTimeOffset() {
+func (network *NetworkImpl) setNetworkTimeOffset() {
 	network.networkTimeOffsetMutex.Lock()
 	defer network.networkTimeOffsetMutex.Unlock()
 
@@ -179,7 +224,7 @@ func (network *Network) setNetworkTimeOffset() {
 	network.networkTimeOffset = offsets[len(offsets)/2]
 }
 
-func (network *Network) dialPeers() {
+func (network *NetworkImpl) dialPeers() {
 	ticker := time.NewTicker(2 * time.Minute)
 	network.wg.Add(1)
 
@@ -194,12 +239,12 @@ func (network *Network) dialPeers() {
 				return
 			case <-ticker.C:
 				network.PeersMutex.RLock()
-				if len(network.Peers) >= config.GlobalConfig.NetworkConfig.MaxNumberOfConnections {
+				if len(network.Peers) >= network.networkConfig.MaxNumberOfConnections {
 					network.PeersMutex.RUnlock()
 					continue
 				}
 
-				neededAddresses := config.GlobalConfig.NetworkConfig.MaxNumberOfConnections - len(network.Peers)
+				neededAddresses := network.networkConfig.MaxNumberOfConnections - len(network.Peers)
 
 				excludedAddresses := make([]*models.Address, len(network.Peers))
 				idx := 0
@@ -209,7 +254,7 @@ func (network *Network) dialPeers() {
 				}
 				network.PeersMutex.RUnlock()
 
-				addresses, err := repositories.GlobalAddressRepository.GetAddresses(neededAddresses, excludedAddresses)
+				addresses, err := network.addressRepository.GetAddresses(neededAddresses, excludedAddresses)
 				if err != nil {
 					log.Printf("|Network| Failed to get addresses: %v", err)
 					continue
@@ -221,7 +266,7 @@ func (network *Network) dialPeers() {
 						log.Printf("|Network| Failed to dial address %s: %v", address.String(), err)
 
 						now := time.Now()
-						err := repositories.GlobalAddressRepository.UpdateLastFailed(address, &now)
+						err := network.addressRepository.UpdateLastFailed(address, &now)
 						if err != nil {
 							log.Printf("|Network| Failed to update last failed for address %s: %v", address.String(), err)
 						}
@@ -232,7 +277,7 @@ func (network *Network) dialPeers() {
 	}()
 }
 
-func (network *Network) removePeers() {
+func (network *NetworkImpl) removePeers() {
 	ticker := time.NewTicker(30 * time.Second)
 	network.wg.Add(1)
 
@@ -254,7 +299,7 @@ func (network *Network) removePeers() {
 						continue
 					}
 					sinceLastPong := time.Since(peer.PingPongDetails.PongTime)
-					pongTimeout := time.Duration(config.GlobalConfig.NetworkConfig.PongTimeout) * time.Second
+					pongTimeout := time.Duration(network.networkConfig.PongTimeout) * time.Second
 					if sinceLastPong > pongTimeout {
 						toRemove = append(toRemove, peer)
 						continue
@@ -275,7 +320,7 @@ func (network *Network) removePeers() {
 	}()
 }
 
-func (network *Network) processPing(fromPeer *peer.Peer, message *models.Message) {
+func (network *NetworkImpl) processPing(fromPeer *peer.Peer, message *models.Message) {
 	select {
 	case <-fromPeer.StopChannel:
 		return
@@ -283,7 +328,7 @@ func (network *Network) processPing(fromPeer *peer.Peer, message *models.Message
 	}
 }
 
-func (network *Network) processPong(fromPeer *peer.Peer, message *models.Message) {
+func (network *NetworkImpl) processPong(fromPeer *peer.Peer, message *models.Message) {
 	n := nonce.NonceFromBytes(message.Payload)
 	if fromPeer.PingPongDetails.Nonce != n {
 		return
@@ -296,7 +341,7 @@ func (network *Network) processPong(fromPeer *peer.Peer, message *models.Message
 
 	if fromPeer.LastSeen == nil || time.Since(*fromPeer.LastSeen) > 5*time.Minute {
 		now := time.Now()
-		err := repositories.GlobalAddressRepository.UpdateLastSeen(fromPeer.Address, &now)
+		err := network.addressRepository.UpdateLastSeen(fromPeer.Address, &now)
 		if err != nil {
 			log.Printf("|Network| Failed to update last seen for address %s: %v", fromPeer.Address.String(), err)
 			return
@@ -306,9 +351,9 @@ func (network *Network) processPong(fromPeer *peer.Peer, message *models.Message
 	}
 }
 
-func (network *Network) processGetAddr(fromPeer *peer.Peer, message *models.Message) {
+func (network *NetworkImpl) processGetAddr(fromPeer *peer.Peer, message *models.Message) {
 	excludedAddresses := []*models.Address{fromPeer.Address}
-	addresses, err := repositories.GlobalAddressRepository.GetAddresses(models.MAX_ADDR_SIZE, excludedAddresses)
+	addresses, err := network.addressRepository.GetAddresses(models.MAX_ADDR_SIZE, excludedAddresses)
 
 	if err != nil {
 		log.Printf("|Network| Failed to get addresses for peer %s: %v", fromPeer.String(), err)
@@ -333,7 +378,7 @@ func (network *Network) processGetAddr(fromPeer *peer.Peer, message *models.Mess
 	}
 }
 
-func (network *Network) processAddr(fromPeer *peer.Peer, message *models.Message) {
+func (network *NetworkImpl) processAddr(fromPeer *peer.Peer, message *models.Message) {
 	fromPeer.SentGetAddrMutex.Lock()
 	defer fromPeer.SentGetAddrMutex.Unlock()
 
@@ -364,7 +409,7 @@ func (network *Network) processAddr(fromPeer *peer.Peer, message *models.Message
 	}
 }
 
-func (network *Network) addAddress(address *models.Address) error {
+func (network *NetworkImpl) addAddress(address *models.Address) error {
 	if address.NodeType != 1 {
 		return nil
 	}
@@ -373,9 +418,9 @@ func (network *Network) addAddress(address *models.Address) error {
 		return nil
 	}
 
-	if config.GlobalConfig.NetworkConfig.Ip == address.Ip.String() && config.GlobalConfig.NetworkConfig.Port == address.Port {
+	if network.networkConfig.Ip.Equal(address.Ip) && network.networkConfig.Port == address.Port {
 		return nil
 	}
 
-	return repositories.GlobalAddressRepository.InsertIfNotExists(address)
+	return network.addressRepository.InsertIfNotExists(address)
 }

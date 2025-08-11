@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/nivschuman/VotingBlockchain/internal/config"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/merkle"
 	"github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
@@ -100,8 +99,8 @@ func (transaction *Transaction) SignatureIsValid() (bool, error) {
 	return publicKey.VerifySignature(transaction.Signature, transaction.GetHash()), nil
 }
 
-func (transaction *Transaction) GovernmentSignatureIsValid() (bool, error) {
-	publicKey, err := ppk.GetPublicKeyFromBytes(config.GlobalConfig.GovernmentConfig.PublicKey)
+func (transaction *Transaction) GovernmentSignatureIsValid(governmentPublicKey []byte) (bool, error) {
+	publicKey, err := ppk.GetPublicKeyFromBytes(governmentPublicKey)
 
 	if err != nil {
 		return false, err
@@ -110,8 +109,8 @@ func (transaction *Transaction) GovernmentSignatureIsValid() (bool, error) {
 	return publicKey.VerifySignature(transaction.GovernmentSignature, hash.HashBytes(transaction.VoterPublicKey)), nil
 }
 
-func (transaction *Transaction) IsValid() (bool, error) {
-	valid, err := transaction.GovernmentSignatureIsValid()
+func (transaction *Transaction) IsValid(governmentPublicKey []byte) (bool, error) {
+	valid, err := transaction.GovernmentSignatureIsValid(governmentPublicKey)
 
 	if err != nil {
 		return false, err

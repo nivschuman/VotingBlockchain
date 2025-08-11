@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	connection "github.com/nivschuman/VotingBlockchain/internal/networking/connection"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	checksum "github.com/nivschuman/VotingBlockchain/internal/networking/utils/checksum"
@@ -21,6 +20,12 @@ const PING_INTERVAL = 2 * time.Minute
 const SEND_DATA_INTERVAL = 100 * time.Second
 
 type CommandHandler func(peer *Peer, message *models.Message)
+
+type PeerConfig struct {
+	SendDataInterval time.Duration
+	PingInterval     time.Duration
+	GetAddrInterval  time.Duration
+}
 
 type Peer struct {
 	Conn net.Conn
@@ -44,6 +49,9 @@ type Peer struct {
 	Address  *models.Address
 	LastSeen *time.Time
 
+	myVersion  models.VersionProvider
+	peerConfig PeerConfig
+
 	commandHandlersMutex sync.Mutex
 	commandHandlers      *structures.BytesMap[[]CommandHandler]
 
@@ -58,7 +66,7 @@ type Peer struct {
 	wg             sync.WaitGroup
 }
 
-func NewPeer(conn net.Conn, initializer bool) *Peer {
+func NewPeer(conn net.Conn, initializer bool, peerConfig PeerConfig, myVersion models.VersionProvider) *Peer {
 	reader := connection.NewReader()
 	sender := connection.NewSender()
 
@@ -91,6 +99,8 @@ func NewPeer(conn net.Conn, initializer bool) *Peer {
 		StopChannel:      stopChannel,
 		InventoryToSend:  models.NewInv(),
 		SentGetAddr:      false,
+		myVersion:        myVersion,
+		peerConfig:       peerConfig,
 		commandHandlers:  structures.NewBytesMap[[]CommandHandler](),
 		reader:           reader,
 		sender:           sender,
@@ -213,16 +223,14 @@ func (peer *Peer) sendMessages() {
 
 func (peer *Peer) sendData() {
 	defer peer.wg.Done()
-	sendDataInterval := time.Duration(config.GlobalConfig.NetworkConfig.SendDataInterval) * time.Second
-	tickerData := time.NewTicker(sendDataInterval)
+
+	tickerData := time.NewTicker(peer.peerConfig.SendDataInterval)
 	defer tickerData.Stop()
 
-	pingInterval := time.Duration(config.GlobalConfig.NetworkConfig.PingInterval) * time.Second
-	tickerPing := time.NewTicker(pingInterval)
+	tickerPing := time.NewTicker(peer.peerConfig.PingInterval)
 	defer tickerPing.Stop()
 
-	getAddrInterval := time.Duration(config.GlobalConfig.NetworkConfig.GetAddrInterval) * time.Second
-	tickerGetAddr := time.NewTicker(getAddrInterval)
+	tickerGetAddr := time.NewTicker(peer.peerConfig.GetAddrInterval)
 	defer tickerGetAddr.Stop()
 
 	for {

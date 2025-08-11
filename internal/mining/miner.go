@@ -7,14 +7,31 @@ import (
 	"sync"
 	"time"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
 type BlockHandler func(block *data_models.Block)
 
-type Miner struct {
+type Miner interface {
+	AddHandler(blockHandler BlockHandler)
+	Start()
+	MineBlockTemplate(blockTemplate *data_models.Block)
+	CreateBlockTemplate() (*data_models.Block, error)
+	Stop()
+}
+
+type MinerProperties struct {
+	NodeVersion    int32
+	MinerPublicKey []byte
+}
+
+type MinerImpl struct {
+	properties MinerProperties
+
+	blockRepository       repos.BlockRepository
+	transactionRepository repos.TransactionRepository
+
 	getNetworkTime func() int64
 
 	handlers    []BlockHandler
@@ -25,20 +42,27 @@ type Miner struct {
 	wg          sync.WaitGroup
 }
 
-func NewMiner(getNetworkTime func() int64) *Miner {
-	return &Miner{
-		stopChannel:    make(chan bool),
-		getNetworkTime: getNetworkTime,
+func NewMinerImpl(
+	getNetworkTime func() int64,
+	blockRepository repos.BlockRepository,
+	transactionRepository repos.TransactionRepository,
+	minerProperties MinerProperties) *MinerImpl {
+	return &MinerImpl{
+		stopChannel:           make(chan bool),
+		getNetworkTime:        getNetworkTime,
+		blockRepository:       blockRepository,
+		transactionRepository: transactionRepository,
+		properties:            minerProperties,
 	}
 }
 
-func (miner *Miner) AddHandler(blockHandler BlockHandler) {
+func (miner *MinerImpl) AddHandler(blockHandler BlockHandler) {
 	miner.handlersMux.Lock()
 	defer miner.handlersMux.Unlock()
 	miner.handlers = append(miner.handlers, blockHandler)
 }
 
-func (miner *Miner) Start() {
+func (miner *MinerImpl) Start() {
 	miner.wg.Add(1)
 	log.Printf("|Miner| Starting")
 
@@ -60,8 +84,8 @@ func (miner *Miner) Start() {
 	}()
 }
 
-func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
-	medianPastTime, err := repos.GlobalBlockRepository.GetMedianTimePast(blockTemplate.Header.PreviousBlockId, 11)
+func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
+	medianPastTime, err := miner.blockRepository.GetMedianTimePast(blockTemplate.Header.PreviousBlockId, 11)
 	if err != nil {
 		log.Printf("|Miner| Failed to get median time past: %v", err)
 		return
@@ -95,7 +119,7 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 			}
 
-			if !bytes.Equal(blockTemplate.Header.PreviousBlockId, repos.GlobalBlockRepository.ActiveChainTipId) {
+			if !bytes.Equal(blockTemplate.Header.PreviousBlockId, miner.blockRepository.GetActiveChainTipId()) {
 				return
 			}
 		}
@@ -111,15 +135,15 @@ func (miner *Miner) MineBlockTemplate(blockTemplate *data_models.Block) {
 	}
 }
 
-func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
-	activeChainTipId := slices.Clone(repos.GlobalBlockRepository.ActiveChainTipId)
+func (miner *MinerImpl) CreateBlockTemplate() (*data_models.Block, error) {
+	activeChainTipId := slices.Clone(miner.blockRepository.GetActiveChainTipId())
 
-	txs, err := repos.GlobalTransactionRepository.GetMempool(10)
+	txs, err := miner.transactionRepository.GetMempool(10)
 	if err != nil {
 		return nil, err
 	}
 
-	nbits, err := repos.GlobalBlockRepository.GetNextWorkRequired(activeChainTipId)
+	nbits, err := miner.blockRepository.GetNextWorkRequired(activeChainTipId)
 	if err != nil {
 		return nil, err
 	}
@@ -127,11 +151,11 @@ func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
 	merkleRoot := data_models.TransactionsMerkleRoot(txs)
 
 	templateHeader := data_models.BlockHeader{
-		Version:         config.GlobalConfig.NodeConfig.Version,
+		Version:         miner.properties.NodeVersion,
 		PreviousBlockId: activeChainTipId,
 		MerkleRoot:      merkleRoot,
 		NBits:           nbits,
-		MinerPublicKey:  config.GlobalConfig.MinerConfig.PublicKey,
+		MinerPublicKey:  miner.properties.MinerPublicKey,
 	}
 
 	template := &data_models.Block{
@@ -142,7 +166,7 @@ func (miner *Miner) CreateBlockTemplate() (*data_models.Block, error) {
 	return template, nil
 }
 
-func (miner *Miner) Stop() {
+func (miner *MinerImpl) Stop() {
 	miner.stopOnce.Do(func() {
 		log.Printf("|Miner| Stopping")
 		close(miner.stopChannel)

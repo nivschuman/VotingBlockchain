@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	networking_models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 )
@@ -25,7 +24,7 @@ func TestGetAddresses(t *testing.T) {
 	}
 
 	for idx, address := range addresses {
-		err := repositories.GlobalAddressRepository.InsertIfNotExists(address)
+		err := inits.TestAddressRepository.InsertIfNotExists(address)
 		if err != nil {
 			t.Fatalf("failed to insert test address: %v", err)
 		}
@@ -37,7 +36,7 @@ func TestGetAddresses(t *testing.T) {
 			seenTime = &old
 		}
 
-		err = repositories.GlobalAddressRepository.UpdateLastSeen(address, seenTime)
+		err = inits.TestAddressRepository.UpdateLastSeen(address, seenTime)
 		if err != nil {
 			t.Fatalf("failed to update last seen: %v", err)
 		}
@@ -48,7 +47,7 @@ func TestGetAddresses(t *testing.T) {
 		{Ip: net.ParseIP("2001:db8::1"), Port: 8334},
 	}
 
-	addresses, err := repositories.GlobalAddressRepository.GetAddresses(10, excludedAddresses)
+	addresses, err := inits.TestAddressRepository.GetAddresses(10, excludedAddresses)
 	if err != nil {
 		t.Fatalf("failed to get addresses: %v", err)
 	}

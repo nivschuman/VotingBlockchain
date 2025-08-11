@@ -3,10 +3,8 @@ package nodes
 import (
 	"bytes"
 	"log"
-	"net"
 	"sync"
 
-	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	mining "github.com/nivschuman/VotingBlockchain/internal/mining"
@@ -18,20 +16,33 @@ import (
 )
 
 type FullNode struct {
-	network *network.Network
-	miner   *mining.Miner
-	mine    bool
+	network network.Network
+	miner   mining.Miner
+
+	blockRepository       repos.BlockRepository
+	transactionRepository repos.TransactionRepository
+
+	governmentPublicKey []byte
 
 	orphanBlocks      *structures.BytesMap[*data_models.Block]
 	orphanBlocksMutex sync.RWMutex
 }
 
-func NewFullNode(mine bool) *FullNode {
-	fullNode := &FullNode{}
+func NewFullNode(
+	network network.Network,
+	miner mining.Miner,
+	blockRepository repos.BlockRepository,
+	transactionRepository repos.TransactionRepository,
+	governmentPublicKey []byte) *FullNode {
+	fullNode := &FullNode{
+		network:               network,
+		miner:                 miner,
+		blockRepository:       blockRepository,
+		transactionRepository: transactionRepository,
+		orphanBlocks:          structures.NewBytesMap[*data_models.Block](),
+		governmentPublicKey:   governmentPublicKey,
+	}
 
-	ip := net.ParseIP(config.GlobalConfig.NetworkConfig.Ip)
-	port := config.GlobalConfig.NetworkConfig.Port
-	fullNode.network = network.NewNetwork(ip, port)
 	fullNode.network.AddCommandHandler(models.CommandGetBlocks, fullNode.processGetBlocks)
 	fullNode.network.AddCommandHandler(models.CommandMemPool, fullNode.processMemPool)
 	fullNode.network.AddCommandHandler(models.CommandTx, fullNode.processTx)
@@ -39,11 +50,7 @@ func NewFullNode(mine bool) *FullNode {
 	fullNode.network.AddCommandHandler(models.CommandInv, fullNode.processInv)
 	fullNode.network.AddCommandHandler(models.CommandBlock, fullNode.processBlock)
 
-	fullNode.miner = mining.NewMiner(fullNode.network.GetNetworkTime)
 	fullNode.miner.AddHandler(fullNode.processMinedBlock)
-	fullNode.mine = mine
-
-	fullNode.orphanBlocks = structures.NewBytesMap[*data_models.Block]()
 
 	return fullNode
 }
@@ -51,17 +58,13 @@ func NewFullNode(mine bool) *FullNode {
 func (fullNode *FullNode) Start() {
 	log.Print("|Node| Starting full node")
 	fullNode.network.Start()
-	if fullNode.mine {
-		fullNode.miner.Start()
-	}
+	fullNode.miner.Start()
 }
 
 func (fullNode *FullNode) Stop() {
 	log.Print("|Node| Stopping full node")
 	fullNode.network.Stop()
-	if fullNode.mine {
-		fullNode.miner.Stop()
-	}
+	fullNode.miner.Stop()
 }
 
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
@@ -86,14 +89,14 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 		}
 	}
 
-	missingTransactions, err := repos.GlobalTransactionRepository.GetMissingTransactionIds(txHashes)
+	missingTransactions, err := fullNode.transactionRepository.GetMissingTransactionIds(txHashes)
 
 	if err != nil {
 		log.Printf("|Node| Failed to get missing transactions : %v", err)
 		return
 	}
 
-	missingBlocks, err := repos.GlobalBlockRepository.GetMissingBlockIds(blockHashes)
+	missingBlocks, err := fullNode.blockRepository.GetMissingBlockIds(blockHashes)
 
 	if err != nil {
 		log.Printf("|Node| Failed to get missing blocks : %v", err)
@@ -130,7 +133,7 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 		return
 	}
 
-	valid, err := transaction.IsValid()
+	valid, err := transaction.IsValid(fullNode.governmentPublicKey)
 
 	if err != nil {
 		log.Printf("|Node| Failed to validate transaction from %s: %v", fromPeer.String(), err)
@@ -142,7 +145,7 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 		return
 	}
 
-	valid, err = repos.GlobalTransactionRepository.TransactionValidInActiveChain(transaction)
+	valid, err = fullNode.transactionRepository.TransactionValidInActiveChain(transaction)
 
 	if err != nil {
 		log.Printf("|Node| Failed validating transaction from %s: %v", fromPeer.String(), err)
@@ -154,25 +157,17 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 		return
 	}
 
-	err = repos.GlobalTransactionRepository.InsertIfNotExists(transaction)
+	err = fullNode.transactionRepository.InsertIfNotExists(transaction)
 
 	if err != nil {
 		log.Printf("|Node| Failed to insert transaction from %s: %v", fromPeer.String(), err)
 	}
 
-	fullNode.network.PeersMutex.RLock()
-	for _, peer := range fullNode.network.Peers {
-		if peer != fromPeer {
-			peer.InventoryToSendMutex.Lock()
-			peer.InventoryToSend.AddItem(models.MSG_TX, transaction.Id)
-			peer.InventoryToSendMutex.Unlock()
-		}
-	}
-	fullNode.network.PeersMutex.RUnlock()
+	fullNode.network.BroadcastItemToPeers(models.MSG_TX, transaction.Id, fromPeer)
 }
 
 func (fullNode *FullNode) processMemPool(fromPeer *peer.Peer, _ *models.Message) {
-	transactions, err := repos.GlobalTransactionRepository.GetMempool(10)
+	transactions, err := fullNode.transactionRepository.GetMempool(10)
 
 	if err != nil {
 		log.Printf("|Node| Failed to get mempool for %s: %v", fromPeer.String(), err)
@@ -219,14 +214,14 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 		}
 	}
 
-	transactions, err := repos.GlobalTransactionRepository.GetTransactions(txHashes)
+	transactions, err := fullNode.transactionRepository.GetTransactions(txHashes)
 
 	if err != nil {
 		log.Printf("|Node| Failed to get transactions : %v", err)
 		return
 	}
 
-	blocks, err := repos.GlobalBlockRepository.GetBlocks(blockHashes)
+	blocks, err := fullNode.blockRepository.GetBlocks(blockHashes)
 
 	if err != nil {
 		log.Printf("|Node| Failed to get blocks : %v", err)
@@ -262,7 +257,7 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 		return
 	}
 
-	blocksIds, err := repos.GlobalBlockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
+	blocksIds, err := fullNode.blockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
 
 	if err != nil {
 		log.Printf("|Node| Failed to parse get next blocks for %s: %v", fromPeer.String(), err)
@@ -303,7 +298,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 		return
 	}
 
-	exists, err := repos.GlobalBlockRepository.HaveBlock(block.Header.Id)
+	exists, err := fullNode.blockRepository.HaveBlock(block.Header.Id)
 
 	if err != nil {
 		log.Printf("|Node| Failed to check if block exists from %s is orphan: %v", fromPeer.String(), err)
@@ -315,7 +310,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	}
 
 	//Check if block is orphan
-	isOrphan, err := repos.GlobalBlockRepository.BlockIsOrphan(block)
+	isOrphan, err := fullNode.blockRepository.BlockIsOrphan(block)
 
 	if err != nil {
 		log.Printf("|Node| Failed to check if block from %s is orphan: %v", fromPeer.String(), err)
@@ -341,7 +336,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 		fullNode.orphanBlocksMutex.Unlock()
 
 		//Ask for block
-		blockLocator, err := repos.GlobalBlockRepository.GetActiveChainBlockLocator()
+		blockLocator, err := fullNode.blockRepository.GetActiveChainBlockLocator()
 
 		if err != nil {
 			log.Printf("|Node| Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
@@ -380,7 +375,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	}
 
 	//Insert block
-	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
+	err = fullNode.blockRepository.InsertIfNotExists(block)
 
 	if err != nil {
 		log.Printf("|Node| Failed to insert block from %s: %v", fromPeer.String(), err)
@@ -388,15 +383,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	}
 
 	//Send block to peers
-	fullNode.network.PeersMutex.RLock()
-	for _, peer := range fullNode.network.Peers {
-		if peer != fromPeer {
-			peer.InventoryToSendMutex.Lock()
-			peer.InventoryToSend.AddItem(models.MSG_BLOCK, block.Header.Id)
-			peer.InventoryToSendMutex.Unlock()
-		}
-	}
-	fullNode.network.PeersMutex.RUnlock()
+	fullNode.network.BroadcastItemToPeers(models.MSG_BLOCK, block.Header.Id, fromPeer)
 
 	//Process dependent orphans recursively
 	queue := []*data_models.Block{block}
@@ -420,22 +407,14 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 				continue
 			}
 
-			err = repos.GlobalBlockRepository.InsertIfNotExists(child)
+			err = fullNode.blockRepository.InsertIfNotExists(child)
 
 			if err != nil {
 				log.Printf("|Node| Failed to insert orphan child block %x: %v", child.Header.Id, err)
 				continue
 			}
 
-			fullNode.network.PeersMutex.RLock()
-			for _, peer := range fullNode.network.Peers {
-				if peer != fromPeer {
-					peer.InventoryToSendMutex.Lock()
-					peer.InventoryToSend.AddItem(models.MSG_BLOCK, child.Header.Id)
-					peer.InventoryToSendMutex.Unlock()
-				}
-			}
-			fullNode.network.PeersMutex.RUnlock()
+			fullNode.network.BroadcastItemToPeers(models.MSG_BLOCK, child.Header.Id, fromPeer)
 
 			fullNode.orphanBlocksMutex.Lock()
 			fullNode.orphanBlocks.Remove(child.Header.Id)
@@ -465,7 +444,7 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 
 	//Block transactions must be valid
 	for _, tx := range block.Transactions {
-		valid, err := tx.IsValid()
+		valid, err := tx.IsValid(fullNode.governmentPublicKey)
 
 		if err != nil {
 			return false, err
@@ -487,7 +466,7 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 
 func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be greater than the median time of the last 11 blocks
-	medianTimePast, err := repos.GlobalBlockRepository.GetMedianTimePast(block.Header.PreviousBlockId, 11)
+	medianTimePast, err := fullNode.blockRepository.GetMedianTimePast(block.Header.PreviousBlockId, 11)
 	if err != nil {
 		return false, err
 	}
@@ -497,7 +476,7 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 	}
 
 	//Validate transactions on this blocks chain
-	valid, err := repos.GlobalTransactionRepository.TransactionsValidInChain(block.Header.PreviousBlockId, block.Transactions)
+	valid, err := fullNode.transactionRepository.TransactionsValidInChain(block.Header.PreviousBlockId, block.Transactions)
 	if err != nil {
 		return false, err
 	}
@@ -507,7 +486,7 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 	}
 
 	//Validate work
-	requiredNBits, err := repos.GlobalBlockRepository.GetNextWorkRequired(block.Header.PreviousBlockId)
+	requiredNBits, err := fullNode.blockRepository.GetNextWorkRequired(block.Header.PreviousBlockId)
 	if err != nil {
 		return false, err
 	}
@@ -580,7 +559,7 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	}
 
 	//Insert block
-	err = repos.GlobalBlockRepository.InsertIfNotExists(block)
+	err = fullNode.blockRepository.InsertIfNotExists(block)
 
 	if err != nil {
 		log.Printf("|Node| Failed to insert block from miner: %v", err)
@@ -588,11 +567,5 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	}
 
 	//Send block to peers
-	fullNode.network.PeersMutex.RLock()
-	for _, peer := range fullNode.network.Peers {
-		peer.InventoryToSendMutex.Lock()
-		peer.InventoryToSend.AddItem(models.MSG_BLOCK, block.Header.Id)
-		peer.InventoryToSendMutex.Unlock()
-	}
-	fullNode.network.PeersMutex.RUnlock()
+	fullNode.network.BroadcastItemToPeers(models.MSG_BLOCK, block.Header.Id, nil)
 }

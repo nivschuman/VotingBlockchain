@@ -18,6 +18,8 @@ import (
 const pageSize = 6
 
 type BlocksTab struct {
+	blockRepository repositories.BlockRepository
+
 	widget fyne.CanvasObject
 
 	currentPage int64
@@ -43,9 +45,10 @@ type BlocksTab struct {
 	searchText string
 }
 
-func NewBlocksTab() *BlocksTab {
+func NewBlocksTab(blockRepository repositories.BlockRepository) *BlocksTab {
 	t := &BlocksTab{
-		sortAsc: true,
+		sortAsc:         true,
+		blockRepository: blockRepository,
 	}
 
 	t.widget = t.buildUI()
@@ -239,7 +242,7 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 
 func (t *BlocksTab) loadPage() {
 	offset := int(t.currentPage * pageSize)
-	blocks, totalCount, err := repositories.GlobalBlockRepository.GetActiveBlocksPaged(t.searchText, offset, pageSize, t.sortAsc)
+	blocks, totalCount, err := t.blockRepository.GetActiveBlocksPaged(t.searchText, offset, pageSize, t.sortAsc)
 	if err != nil {
 		t.allBlocks = []*models.BlockDB{}
 		t.totalCount = 0
@@ -273,7 +276,7 @@ func (t *BlocksTab) updatePaginationButtons() {
 
 func (t *BlocksTab) load3Blocks() {
 	t.chainView.Objects = nil
-	blocks, totalCount, err := repositories.GlobalBlockRepository.GetActiveBlocksPaged("", t.offset, 3, false)
+	blocks, totalCount, err := t.blockRepository.GetActiveBlocksPaged("", t.offset, 3, false)
 	if err != nil || len(blocks) == 0 {
 		t.chainView.Refresh()
 		t.updateChainButtons(0)

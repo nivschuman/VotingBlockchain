@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nivschuman/VotingBlockchain/internal/config"
 	inits "github.com/nivschuman/VotingBlockchain/tests/init"
 )
 
@@ -22,7 +21,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestGlobalConfig(t *testing.T) {
-	conf := config.GlobalConfig
+	conf := inits.TestConfig
 
 	if conf.NodeConfig.Version != 1 {
 		t.Fatalf("Node version wasn't set correctly, is %d", conf.NodeConfig.Version)

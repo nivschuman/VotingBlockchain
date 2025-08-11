@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	difficulty "github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
@@ -31,13 +30,13 @@ func TestMain(m *testing.M) {
 func TestGenesisBlock(t *testing.T) {
 	inits.ResetTestDatabase()
 
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	genesisBlock := inits.TestBlockRepository.GenesisBlock()
 
 	if !genesisBlock.Header.IsHashBelowTarget() {
 		t.Fatalf("hash isn't below target")
 	}
 
-	cumulativeWork, err := repositories.GlobalBlockRepository.GetBlockCumulativeWork(genesisBlock.Header.Id)
+	cumulativeWork, err := inits.TestBlockRepository.GetBlockCumulativeWork(genesisBlock.Header.Id)
 
 	if err != nil {
 		t.Fatalf("failed to get genesis block cumulative work: %v", err)
@@ -45,6 +44,23 @@ func TestGenesisBlock(t *testing.T) {
 
 	if cumulativeWork.Cmp(difficulty.CalculateWork(difficulty.MINIMUM_DIFFICULTY)) != 0 {
 		t.Fatalf("genesis block cumulative work is wrong: %s", cumulativeWork.String())
+	}
+}
+
+func TestActiveChainHeight(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, _, _, err := inits.CreateTestData(4, 2)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	height, err := inits.TestBlockRepository.GetActiveChainHeight()
+	if err != nil {
+		t.Fatalf("failed to get active chain height: %v", err)
+	}
+
+	if height != uint64(4) {
+		t.Fatalf("received wrong height %d", height)
 	}
 }
 
@@ -72,7 +88,7 @@ func TestGetMissingBlockIds(t *testing.T) {
 	ids.Add(block2.Header.Id)
 	ids.Add(lastBlock.Header.Id)
 
-	missing, err := repositories.GlobalBlockRepository.GetMissingBlockIds(ids)
+	missing, err := inits.TestBlockRepository.GetMissingBlockIds(ids)
 
 	if err != nil {
 		t.Fatalf("failed to get missing blocks: %v", err)
@@ -94,13 +110,13 @@ func TestGetBlockCumulativeWork(t *testing.T) {
 		t.Fatalf("failed to setup test data: %v", err)
 	}
 
-	expectedCumulativeWork := repositories.GlobalBlockRepository.GenesisBlock().GetBlockWork()
+	expectedCumulativeWork := inits.TestBlockRepository.GenesisBlock().GetBlockWork()
 	for _, block := range blocks {
 		expectedCumulativeWork.Add(block.GetBlockWork(), expectedCumulativeWork)
 	}
 
 	lastBlock := blocks[len(blocks)-1]
-	cumulativeWork, err := repositories.GlobalBlockRepository.GetBlockCumulativeWork(lastBlock.Header.Id)
+	cumulativeWork, err := inits.TestBlockRepository.GetBlockCumulativeWork(lastBlock.Header.Id)
 
 	if err != nil {
 		t.Fatalf("failed to get block cumulative work: %v", err)
@@ -127,7 +143,7 @@ func TestGetMedianTimePast(t *testing.T) {
 	expectedMedianTime := times[len(times)/2]
 
 	lastBlock := blocks[len(blocks)-1]
-	medianTime, err := repositories.GlobalBlockRepository.GetMedianTimePast(lastBlock.Header.Id, 6)
+	medianTime, err := inits.TestBlockRepository.GetMedianTimePast(lastBlock.Header.Id, 6)
 
 	if err != nil {
 		t.Fatalf("failed to calculate median time: %v", err)
@@ -145,11 +161,11 @@ func TestGetBlockLocator(t *testing.T) {
 		t.Fatalf("failed to create test data: %v", err)
 	}
 
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	genesisBlock := inits.TestBlockRepository.GenesisBlock()
 	blocks = append([]*models.Block{genesisBlock}, blocks...)
 
 	lastBlock := blocks[len(blocks)-1]
-	locator, err := repositories.GlobalBlockRepository.GetBlockLocator(lastBlock.Header.Id)
+	locator, err := inits.TestBlockRepository.GetBlockLocator(lastBlock.Header.Id)
 	if err != nil {
 		t.Fatalf("get block locator failed: %v", err)
 	}
@@ -178,10 +194,10 @@ func TestGetActiveChainBlockLocator(t *testing.T) {
 		t.Fatalf("failed to create test data: %v", err)
 	}
 
-	genesisBlock := repositories.GlobalBlockRepository.GenesisBlock()
+	genesisBlock := inits.TestBlockRepository.GenesisBlock()
 	blocks = append([]*models.Block{genesisBlock}, blocks...)
 
-	locator, err := repositories.GlobalBlockRepository.GetActiveChainBlockLocator()
+	locator, err := inits.TestBlockRepository.GetActiveChainBlockLocator()
 	if err != nil {
 		t.Fatalf("get block locator failed: %v", err)
 	}
@@ -218,7 +234,7 @@ func TestGetNextBlockIds(t *testing.T) {
 	stopHash := []byte(nil)
 	limit := 5
 
-	blockIds, err := repositories.GlobalBlockRepository.GetNextBlocksIds(locator, stopHash, limit)
+	blockIds, err := inits.TestBlockRepository.GetNextBlocksIds(locator, stopHash, limit)
 	if err != nil {
 		t.Fatalf("get next block ids failed: %v", err)
 	}
@@ -245,7 +261,7 @@ func TestGetNextWorkRequired(t *testing.T) {
 
 	//next block is not at difficulty adjustment level
 	lastBlock := blocks[7] // height 8
-	nBits, err := repositories.GlobalBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
+	nBits, err := inits.TestBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
 	if err != nil {
 		t.Fatalf("GetNextWorkRequired error: %v", err)
 	}
@@ -256,7 +272,7 @@ func TestGetNextWorkRequired(t *testing.T) {
 
 	//next block is at difficulty adjustment level
 	lastBlock = blocks[8] // height 9
-	nBits, err = repositories.GlobalBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
+	nBits, err = inits.TestBlockRepository.GetNextWorkRequired(lastBlock.Header.Id)
 	if err != nil {
 		t.Fatalf("GetNextWorkRequired error: %v", err)
 	}

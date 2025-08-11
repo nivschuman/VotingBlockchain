@@ -1,0 +1,30 @@
+package mining
+
+import "github.com/nivschuman/VotingBlockchain/internal/models"
+
+type DisabledMiner struct{}
+
+func NewDisabledMiner() *DisabledMiner {
+	return &DisabledMiner{}
+}
+
+func (m *DisabledMiner) AddHandler(blockHandler BlockHandler) {
+	// no-op
+}
+
+func (m *DisabledMiner) Start() {
+	// no-op
+}
+
+func (m *DisabledMiner) MineBlockTemplate(blockTemplate *models.Block) {
+	// no-op
+}
+
+func (m *DisabledMiner) CreateBlockTemplate() (*models.Block, error) {
+	// Return empty block or nil
+	return nil, nil
+}
+
+func (m *DisabledMiner) Stop() {
+	// no-op
+}

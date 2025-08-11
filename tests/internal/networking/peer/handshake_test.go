@@ -53,7 +53,12 @@ func TestWaitForHandshake_GivenValidHandshake(t *testing.T) {
 		peer2Conn.Write(verAckMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, true)
+	peerConfig := peer.PeerConfig{
+		SendDataInterval: 5 * time.Second,
+		PingInterval:     30 * time.Second,
+		GetAddrInterval:  1 * time.Minute,
+	}
+	p := peer.NewPeer(peer1Conn, true, peerConfig, mocks.MockVersionProvider)
 	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
@@ -81,7 +86,12 @@ func TestWaitForHandshake_GivenInvalidHandshake(t *testing.T) {
 		peer2Conn.Write(verAckMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, true)
+	peerConfig := peer.PeerConfig{
+		SendDataInterval: 5 * time.Second,
+		PingInterval:     30 * time.Second,
+		GetAddrInterval:  1 * time.Minute,
+	}
+	p := peer.NewPeer(peer1Conn, true, peerConfig, mocks.MockVersionProvider)
 	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
@@ -106,7 +116,12 @@ func TestWaitForHandshake_GivenIncompleteHandshake(t *testing.T) {
 		peer2Conn.Write(versionMessage.AsBytes())
 	}()
 
-	p := peer.NewPeer(peer1Conn, true)
+	peerConfig := peer.PeerConfig{
+		SendDataInterval: 5 * time.Second,
+		PingInterval:     30 * time.Second,
+		GetAddrInterval:  1 * time.Minute,
+	}
+	p := peer.NewPeer(peer1Conn, true, peerConfig, mocks.MockVersionProvider)
 	p.Start()
 
 	err := p.WaitForHandshake(time.Second * 2)
