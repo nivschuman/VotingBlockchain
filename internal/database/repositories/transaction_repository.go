@@ -17,6 +17,8 @@ type TransactionRepository interface {
 	GetMempool(limit int) ([]*models.Transaction, error)
 	TransactionValidInActiveChain(transaction *models.Transaction) (bool, error)
 	InsertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error
+	GetConfirmedTransactionsPaged(offset int, limit int) ([]*models.Transaction, int, error)
+	GetMempoolPaged(offset int, limit int) ([]*models.Transaction, int, error)
 }
 
 type TransactionRepositoryImpl struct {
@@ -209,4 +211,73 @@ func (repo *TransactionRepositoryImpl) InsertIfNotExistsTransactional(transactio
 	}
 
 	return nil
+}
+
+func (repo *TransactionRepositoryImpl) GetConfirmedTransactionsPaged(offset int, limit int) ([]*models.Transaction, int, error) {
+	var total int64
+	err := repo.db.
+		Table("transactions t").
+		Joins("JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ?", true).
+		Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var txsDB []db_models.TransactionDB
+	err = repo.db.
+		Table("transactions t").
+		Joins("JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ?", true).
+		Order("b.height DESC, tb.`order` ASC").
+		Offset(offset).
+		Limit(limit).
+		Find(&txsDB).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	transactions := make([]*models.Transaction, len(txsDB))
+	for i, txDB := range txsDB {
+		transactions[i] = mapping.TransactionDBToTransaction(&txDB)
+	}
+
+	return transactions, int(total), nil
+}
+
+func (repo *TransactionRepositoryImpl) GetMempoolPaged(offset int, limit int) ([]*models.Transaction, int, error) {
+	var total int64
+
+	err := repo.db.
+		Table("transactions t").
+		Joins("LEFT JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("LEFT JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ? OR b.in_active_chain IS NULL", false).
+		Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var txsDB []db_models.TransactionDB
+	err = repo.db.
+		Table("transactions t").
+		Joins("LEFT JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("LEFT JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ? OR b.in_active_chain IS NULL", false).
+		Order("t.id ASC").
+		Offset(offset).
+		Limit(limit).
+		Find(&txsDB).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	transactions := make([]*models.Transaction, len(txsDB))
+	for i, txDB := range txsDB {
+		transactions[i] = mapping.TransactionDBToTransaction(&txDB)
+	}
+
+	return transactions, int(total), nil
 }

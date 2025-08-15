@@ -7,6 +7,7 @@ type PublicKey interface {
 
 type PrivateKey interface {
 	CreateSignature(hash []byte) ([]byte, error)
+	AsBytes() ([]byte, error)
 }
 
 type KeyPair struct {
@@ -22,6 +23,16 @@ func GetPublicKeyFromBytes(bytes []byte) (PublicKey, error) {
 	}
 
 	return publicKey, err
+}
+
+func GetPrivateKeyFromBytes(bytes []byte) (PrivateKey, error) {
+	privateKey, err := getECDSAPrivateKeyFromBytes(bytes)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return privateKey, err
 }
 
 func GenerateKeyPair() (*KeyPair, error) {

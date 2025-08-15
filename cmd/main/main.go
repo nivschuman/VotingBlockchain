@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
-	database "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	nodes "github.com/nivschuman/VotingBlockchain/internal/nodes"
 	app "github.com/nivschuman/VotingBlockchain/internal/ui/app"
 	test "github.com/nivschuman/VotingBlockchain/tests/init"
@@ -26,42 +25,15 @@ func main() {
 		log.Fatalf("Failed to load config file: %v", err)
 	}
 
-	//Load database
-	dbFile := os.Getenv("DATABASE_FILE")
-	if dbFile == "" {
-		dbFile = "databases/blockchain.db"
-	}
-
+	//Test Environment
 	environment := os.Getenv("ENVIRONMENT")
 	if environment == "test" {
 		log.Println("|Main| Running in test environment")
-		dbFile = "databases/blockchain-test.db"
 		test.SetupTestEnvironmentConstants()
 	}
 
-	db, err := database.GetDatabaseConnection(dbFile)
-	if err != nil {
-		log.Fatalf("Failed to get database connection: %v", err)
-	}
-
-	//Reset database in test environment
-	if environment == "test" {
-		err = database.ResetDatabase(db)
-		if err != nil {
-			log.Fatalf("Failed to reset test database: %v", err)
-		}
-	}
-
-	//Database cleanup
-	defer func() {
-		err := database.CloseDatabaseConnection(db)
-		if err != nil {
-			log.Fatalf("Failed to close database connection: %v", err)
-		}
-	}()
-
 	//Build node
-	nodeBuilder, err := nodes.NewNodeBuilderImpl(db, conf)
+	nodeBuilder, err := nodes.NewNodeBuilderImpl(conf)
 	if err != nil {
 		log.Fatalf("Failed to create node builder: %v", err)
 	}
@@ -74,7 +46,7 @@ func main() {
 	//Start node
 	go node.Start()
 	if conf.UiConfig.Enabled {
-		appBuilder := app.NewAppBuilderImpl(db)
+		appBuilder := app.NewAppBuilderImpl(nodeBuilder.GetDatabase(), conf)
 		mainApp := appBuilder.BuildApp()
 		mainApp.Start()
 	} else {

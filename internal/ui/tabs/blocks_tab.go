@@ -15,9 +15,9 @@ import (
 	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 )
 
-const pageSize = 6
-
 type BlocksTab struct {
+	pageSize int64
+
 	blockRepository repositories.BlockRepository
 
 	widget fyne.CanvasObject
@@ -49,6 +49,7 @@ func NewBlocksTab(blockRepository repositories.BlockRepository) *BlocksTab {
 	t := &BlocksTab{
 		sortAsc:         true,
 		blockRepository: blockRepository,
+		pageSize:        6,
 	}
 
 	t.widget = t.buildUI()
@@ -186,7 +187,7 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 		}
 	})
 	t.btnNext = widget.NewButton("Next >", func() {
-		maxPage := (t.totalCount - 1) / pageSize
+		maxPage := (t.totalCount - 1) / t.pageSize
 		if t.currentPage < maxPage {
 			t.currentPage++
 			t.loadPage()
@@ -241,8 +242,8 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 }
 
 func (t *BlocksTab) loadPage() {
-	offset := int(t.currentPage * pageSize)
-	blocks, totalCount, err := t.blockRepository.GetActiveBlocksPaged(t.searchText, offset, pageSize, t.sortAsc)
+	offset := int(t.currentPage * t.pageSize)
+	blocks, totalCount, err := t.blockRepository.GetActiveBlocksPaged(t.searchText, offset, int(t.pageSize), t.sortAsc)
 	if err != nil {
 		t.allBlocks = []*models.BlockDB{}
 		t.totalCount = 0
@@ -251,7 +252,7 @@ func (t *BlocksTab) loadPage() {
 		t.totalCount = totalCount
 	}
 
-	t.lblPage.SetText(fmt.Sprintf("Page %d of %d", t.currentPage+1, (t.totalCount+pageSize-1)/pageSize))
+	t.lblPage.SetText(fmt.Sprintf("Page %d of %d", t.currentPage+1, (t.totalCount+t.pageSize-1)/t.pageSize))
 	t.updatePaginationButtons()
 	t.table.Refresh()
 
@@ -266,7 +267,7 @@ func (t *BlocksTab) updatePaginationButtons() {
 		t.btnPrev.Enable()
 	}
 
-	maxPage := (t.totalCount - 1) / pageSize
+	maxPage := (t.totalCount - 1) / t.pageSize
 	if t.currentPage >= maxPage {
 		t.btnNext.Disable()
 	} else {

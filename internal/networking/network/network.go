@@ -48,14 +48,9 @@ type NetworkImpl struct {
 	wg          sync.WaitGroup
 }
 
-func NewNetworkImpl(
-	ip net.IP,
-	port uint16,
-	addressRepository repositories.AddressRepository,
-	networkConfig *config.NetworkConfig,
-	myVersion models.VersionProvider) *NetworkImpl {
+func NewNetworkImpl(addressRepository repositories.AddressRepository, networkConfig *config.NetworkConfig, myVersion models.VersionProvider) *NetworkImpl {
 	network := &NetworkImpl{}
-	network.Listener = connectors.NewListener(ip, port, network.handleConnection)
+	network.Listener = connectors.NewListener(networkConfig.Ip, networkConfig.Port, network.handleConnection)
 	network.Dialer = connectors.NewDialer()
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
