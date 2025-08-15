@@ -16,7 +16,13 @@ miner:
   public-key: 03f0d37776bd2b5f887d975888d6c8f6a1f1a1c7c7dfcd9926983db2960fd58d6a
 
 government:
-  public-key: 03f0d37776bd2b5f887d975888d6c8f6a1f1a1c7c7dfcd9926983db2960fd58d6a
+  public-key: 0328388180b9bb0eabf382cfdf86551d3744b694a70f4c26a1e52e6d120ec19570
 
 ui:
   enabled: true
+
+database:
+  file: "databases/blockchain-test.db"
+
+voters:
+  file: "voters/voters.json"

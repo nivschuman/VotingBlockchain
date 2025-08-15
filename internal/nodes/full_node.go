@@ -26,6 +26,9 @@ type FullNode struct {
 
 	orphanBlocks      *structures.BytesMap[*data_models.Block]
 	orphanBlocksMutex sync.RWMutex
+
+	shutdownHooks      []func() error
+	shutdownHooksMutex sync.Mutex
 }
 
 func NewFullNode(
@@ -41,6 +44,7 @@ func NewFullNode(
 		transactionRepository: transactionRepository,
 		orphanBlocks:          structures.NewBytesMap[*data_models.Block](),
 		governmentPublicKey:   governmentPublicKey,
+		shutdownHooks:         make([]func() error, 0),
 	}
 
 	fullNode.network.AddCommandHandler(models.CommandGetBlocks, fullNode.processGetBlocks)
@@ -62,9 +66,25 @@ func (fullNode *FullNode) Start() {
 }
 
 func (fullNode *FullNode) Stop() {
+	fullNode.shutdownHooksMutex.Lock()
+	defer fullNode.shutdownHooksMutex.Unlock()
+
 	log.Print("|Node| Stopping full node")
 	fullNode.network.Stop()
 	fullNode.miner.Stop()
+
+	for _, hook := range fullNode.shutdownHooks {
+		if err := hook(); err != nil {
+			log.Printf("shutdown hook error: %v", err)
+		}
+	}
+}
+
+func (fullNode *FullNode) AddShutdownHook(hook func() error) {
+	fullNode.shutdownHooksMutex.Lock()
+	defer fullNode.shutdownHooksMutex.Unlock()
+
+	fullNode.shutdownHooks = append(fullNode.shutdownHooks, hook)
 }
 
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {

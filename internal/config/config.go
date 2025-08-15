@@ -12,6 +12,8 @@ type Config struct {
 	GovernmentConfig GovernmentConfig `yaml:"government"`
 	MinerConfig      MinerConfig      `yaml:"miner"`
 	UiConfig         UiConfig         `yaml:"ui"`
+	DatabaseConfig   DatabaseConfig   `yaml:"database"`
+	VotersConfig     VotersConfig     `yaml:"voters"`
 }
 
 func LoadConfigFromFile(path string) (*Config, error) {

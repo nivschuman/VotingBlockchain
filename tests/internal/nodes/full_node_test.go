@@ -368,7 +368,7 @@ func doHandshake(conn net.Conn) {
 }
 
 func newFullNode() *nodes.FullNode {
-	ntwrk := network.NewNetworkImpl(inits.TestConfig.NetworkConfig.Ip, inits.TestConfig.NetworkConfig.Port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, networking_mocks.MockVersionProvider)
+	ntwrk := network.NewNetworkImpl(inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, networking_mocks.MockVersionProvider)
 	miner := mining.NewDisabledMiner()
 
 	return nodes.NewFullNode(ntwrk, miner, inits.TestBlockRepository, inits.TestTransactionRepository, inits.TestConfig.GovernmentConfig.PublicKey)

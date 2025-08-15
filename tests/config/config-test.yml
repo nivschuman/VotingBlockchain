@@ -20,3 +20,9 @@ government:
 
 ui:
   enabled: false
+
+database:
+  file: "databases/blockchain-test.db"
+
+voters:
+  file: "voters/voters.json"

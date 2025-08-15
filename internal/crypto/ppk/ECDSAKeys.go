@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"fmt"
 )
 
@@ -24,6 +25,11 @@ func (ecdsaPublicKey *ECDSAPublicKey) VerifySignature(signature []byte, hash []b
 func (ecdsaPublicKey *ECDSAPublicKey) AsBytes() []byte {
 	publicKey := ecdsaPublicKey.publicKey
 	return elliptic.MarshalCompressed(publicKey.Curve, publicKey.X, publicKey.Y)
+}
+
+func (ecdsaPrivateKey *ECDSAPrivateKey) AsBytes() ([]byte, error) {
+	privateKey := ecdsaPrivateKey.privateKey
+	return x509.MarshalECPrivateKey(privateKey)
 }
 
 func (ecdsaPrivateKey *ECDSAPrivateKey) CreateSignature(hash []byte) ([]byte, error) {
@@ -63,6 +69,19 @@ func getECDSAPublicKeyFromBytes(bytes []byte) (*ECDSAPublicKey, error) {
 	}
 
 	return publicKey, nil
+}
+
+func getECDSAPrivateKeyFromBytes(bytes []byte) (*ECDSAPrivateKey, error) {
+	privKey, err := x509.ParseECPrivateKey(bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	privateKey := &ECDSAPrivateKey{
+		privateKey: privKey,
+	}
+
+	return privateKey, nil
 }
 
 func generateECDSAKeyPair() (*KeyPair, error) {

@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 func TestSendPingToNetwork(t *testing.T) {
 	ip := inits.TestConfig.NetworkConfig.Ip
 	port := inits.TestConfig.NetworkConfig.Port
-	network := network.NewNetworkImpl(ip, port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
+	network := network.NewNetworkImpl(inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
 	network.Start()
 
 	t.Cleanup(func() {
@@ -82,7 +82,7 @@ func TestSendPingToNetwork(t *testing.T) {
 func TestSendGetAddrToNetwork(t *testing.T) {
 	ip := inits.TestConfig.NetworkConfig.Ip
 	port := inits.TestConfig.NetworkConfig.Port
-	network := network.NewNetworkImpl(ip, port, inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
+	network := network.NewNetworkImpl(inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, mocks.MockVersionProvider)
 	network.Start()
 
 	t.Cleanup(func() {
