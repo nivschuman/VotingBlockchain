@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
@@ -18,6 +19,7 @@ type Miner interface {
 	Start()
 	MineBlockTemplate(blockTemplate *data_models.Block)
 	CreateBlockTemplate() (*data_models.Block, error)
+	GetMiningStatistics() MiningStatistics
 	Stop()
 }
 
@@ -37,16 +39,14 @@ type MinerImpl struct {
 	handlers    []BlockHandler
 	handlersMux sync.Mutex
 
+	statistics MiningStatistics
+
 	stopChannel chan bool
 	stopOnce    sync.Once
 	wg          sync.WaitGroup
 }
 
-func NewMinerImpl(
-	getNetworkTime func() int64,
-	blockRepository repos.BlockRepository,
-	transactionRepository repos.TransactionRepository,
-	minerProperties MinerProperties) *MinerImpl {
+func NewMinerImpl(getNetworkTime func() int64, blockRepository repos.BlockRepository, transactionRepository repos.TransactionRepository, minerProperties MinerProperties) *MinerImpl {
 	return &MinerImpl{
 		stopChannel:           make(chan bool),
 		getNetworkTime:        getNetworkTime,
@@ -76,6 +76,7 @@ func (miner *MinerImpl) Start() {
 				blockTemplate, err := miner.CreateBlockTemplate()
 				if err != nil {
 					log.Printf("|Miner| Failed to create block template: %v", err)
+					continue
 				}
 
 				miner.MineBlockTemplate(blockTemplate)
@@ -92,28 +93,21 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 	}
 
 	startTime := time.Now()
-	lastLogTime := startTime
-	lastLogNonce := uint64(0)
+	atomic.StoreInt64(&miner.statistics.CurrentBlockStart, startTime.UnixNano())
+	atomic.StoreUint32(&miner.statistics.CurrentNBits, blockTemplate.Header.NBits)
+	atomic.StoreInt64(&miner.statistics.CurrentBlockHashesTried, 0)
 
 	log.Printf("|Miner| Started mining block")
 	blockTemplate.Header.Nonce = 0
 	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
+
 	for !blockTemplate.Header.IsHashBelowTarget() {
 		select {
 		case <-miner.stopChannel:
 			return
 		default:
 			blockTemplate.Header.Nonce++
-
-			if time.Since(lastLogTime) > 10*time.Minute {
-				elapsed := time.Since(startTime).Seconds()
-				hashes := blockTemplate.Header.Nonce - lastLogNonce
-				hashRate := float64(hashes) / time.Since(lastLogTime).Seconds()
-
-				log.Printf("|Miner| Mining... nonce=%d, %.2f hashes/sec, elapsed=%.0fs", blockTemplate.Header.Nonce, hashRate, elapsed)
-				lastLogTime = time.Now()
-				lastLogNonce = blockTemplate.Header.Nonce
-			}
+			atomic.AddInt64(&miner.statistics.CurrentBlockHashesTried, 1)
 
 			if blockTemplate.Header.Nonce&0x3ffff == 0 {
 				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
@@ -126,9 +120,13 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 	}
 
 	blockTemplate.Header.SetId()
-
 	duration := time.Since(startTime)
+
 	log.Printf("|Miner| Mined block %x in %s", blockTemplate.Header.Id, duration)
+
+	atomic.AddInt64(&miner.statistics.TotalBlocksMined, 1)
+	atomic.StoreInt64(&miner.statistics.LastNonce, int64(blockTemplate.Header.Nonce))
+	atomic.StoreInt64(&miner.statistics.LastBlockTimeNs, duration.Nanoseconds())
 
 	for _, handler := range miner.handlers {
 		handler(blockTemplate)
@@ -172,4 +170,15 @@ func (miner *MinerImpl) Stop() {
 		close(miner.stopChannel)
 	})
 	miner.wg.Wait()
+}
+
+func (miner *MinerImpl) GetMiningStatistics() MiningStatistics {
+	return MiningStatistics{
+		TotalBlocksMined:        atomic.LoadInt64(&miner.statistics.TotalBlocksMined),
+		CurrentBlockHashesTried: atomic.LoadInt64(&miner.statistics.CurrentBlockHashesTried),
+		LastNonce:               atomic.LoadInt64(&miner.statistics.LastNonce),
+		LastBlockTimeNs:         atomic.LoadInt64(&miner.statistics.LastBlockTimeNs),
+		CurrentNBits:            atomic.LoadUint32(&miner.statistics.CurrentNBits),
+		CurrentBlockStart:       atomic.LoadInt64(&miner.statistics.CurrentBlockStart),
+	}
 }

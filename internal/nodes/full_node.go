@@ -87,6 +87,10 @@ func (fullNode *FullNode) AddShutdownHook(hook func() error) {
 	fullNode.shutdownHooks = append(fullNode.shutdownHooks, hook)
 }
 
+func (fullNode *FullNode) GetMiner() mining.Miner {
+	return fullNode.miner
+}
+
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
 	inv, err := models.InvFromBytes(message.Payload)
 
@@ -448,22 +452,25 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 	//Timestamp must be less than the network adjusted time +2 hours.
 	if block.Header.Timestamp > fullNode.network.GetNetworkTime()+2*60*60 {
+		log.Printf("|Node| Invalid block %x: timestamp too far in the future (%d)", block.Header.Id, block.Header.Timestamp)
 		return false, nil
 	}
 
 	//Proof of Work must be valid
 	if !block.Header.IsHashBelowTarget() {
+		log.Printf("|Node| Invalid block %x: hash does not satisfy target", block.Header.Id)
 		return false, nil
 	}
 
 	//NBits must not be below minimum work
 	target := difficulty.GetTargetFromNBits(block.Header.NBits)
 	if target.Cmp(difficulty.GetTargetFromNBits(difficulty.MINIMUM_DIFFICULTY)) > 0 {
+		log.Printf("|Node| Invalid block %x: NBits below minimum difficulty (%d)", block.Header.Id, block.Header.NBits)
 		return false, nil
 	}
 
 	//Block transactions must be valid
-	for _, tx := range block.Transactions {
+	for i, tx := range block.Transactions {
 		valid, err := tx.IsValid(fullNode.governmentPublicKey)
 
 		if err != nil {
@@ -471,6 +478,7 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 		}
 
 		if !valid {
+			log.Printf("|Node| Block %x: transaction %d is invalid", block.Header.Id, i)
 			return false, nil
 		}
 	}
@@ -478,6 +486,7 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 	//Check merkle root
 	merkleRoot := data_models.TransactionsMerkleRoot(block.Transactions)
 	if !bytes.Equal(block.Header.MerkleRoot, merkleRoot) {
+		log.Printf("|Node| Block %x: merkle root mismatch", block.Header.Id)
 		return false, nil
 	}
 
@@ -492,6 +501,7 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 	}
 
 	if block.Header.Timestamp < medianTimePast {
+		log.Printf("|Node| Block %x: timestamp %d < median past %d", block.Header.Id, block.Header.Timestamp, medianTimePast)
 		return false, nil
 	}
 
@@ -502,6 +512,7 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 	}
 
 	if !valid {
+		log.Printf("|Node| Block %x: transactions invalid in chain", block.Header.Id)
 		return false, nil
 	}
 
@@ -512,6 +523,7 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 	}
 
 	if block.Header.NBits != requiredNBits {
+		log.Printf("|Node| Block %x: NBits %d != required %d", block.Header.Id, block.Header.NBits, requiredNBits)
 		return false, nil
 	}
 

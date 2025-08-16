@@ -28,3 +28,14 @@ func (m *DisabledMiner) CreateBlockTemplate() (*models.Block, error) {
 func (m *DisabledMiner) Stop() {
 	// no-op
 }
+
+func (m *DisabledMiner) GetMiningStatistics() MiningStatistics {
+	return MiningStatistics{
+		TotalBlocksMined:        0,
+		CurrentBlockHashesTried: 0,
+		LastNonce:               0,
+		LastBlockTimeNs:         0,
+		CurrentNBits:            0,
+		CurrentBlockStart:       0,
+	}
+}

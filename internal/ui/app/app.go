@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"github.com/nivschuman/VotingBlockchain/internal/config"
 	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	"github.com/nivschuman/VotingBlockchain/internal/nodes"
 	"github.com/nivschuman/VotingBlockchain/internal/ui/tabs"
 	"github.com/nivschuman/VotingBlockchain/internal/voters"
 	"gorm.io/gorm"
@@ -21,6 +22,8 @@ type AppBuilderImpl struct {
 	blockRepository       repositories.BlockRepository
 	transactionRepository repositories.TransactionRepository
 	voters                []*voters.Voter
+	node                  nodes.Node
+	config                *config.Config
 }
 
 type App interface {
@@ -32,7 +35,7 @@ type AppImpl struct {
 	mainWindow fyne.Window
 }
 
-func NewAppBuilderImpl(db *gorm.DB, config *config.Config) *AppBuilderImpl {
+func NewAppBuilderImpl(db *gorm.DB, config *config.Config, node nodes.Node) *AppBuilderImpl {
 	transactionRepository := repositories.NewTransactionRepositoryImpl(db)
 	blockRepository := repositories.NewBlockRepositoryImpl(db, transactionRepository)
 
@@ -46,6 +49,8 @@ func NewAppBuilderImpl(db *gorm.DB, config *config.Config) *AppBuilderImpl {
 		transactionRepository: transactionRepository,
 		blockRepository:       blockRepository,
 		voters:                vtrs,
+		node:                  node,
+		config:                config,
 	}
 }
 
@@ -60,6 +65,11 @@ func (appBuilder *AppBuilderImpl) BuildApp() App {
 
 	transactionsTab := tabs.NewTransactionsTab(appBuilder.transactionRepository, appBuilder.voters)
 	t.Append(container.NewTabItem("Transactions", transactionsTab.GetWidget()))
+
+	if appBuilder.config.MinerConfig.Enabled {
+		miningTab := tabs.NewMiningTab(appBuilder.node.GetMiner())
+		t.Append(container.NewTabItem("Mining", miningTab.GetWidget()))
+	}
 
 	w.SetContent(t)
 	w.Resize(fyne.NewSize(800, 600))
