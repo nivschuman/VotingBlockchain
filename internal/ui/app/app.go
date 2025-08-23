@@ -21,6 +21,7 @@ type AppBuilder interface {
 type AppBuilderImpl struct {
 	blockRepository       repositories.BlockRepository
 	transactionRepository repositories.TransactionRepository
+	addressRepository     repositories.AddressRepository
 	voters                []*voters.Voter
 	node                  nodes.Node
 	config                *config.Config
@@ -38,6 +39,7 @@ type AppImpl struct {
 func NewAppBuilderImpl(db *gorm.DB, config *config.Config, node nodes.Node) *AppBuilderImpl {
 	transactionRepository := repositories.NewTransactionRepositoryImpl(db)
 	blockRepository := repositories.NewBlockRepositoryImpl(db, transactionRepository)
+	addressRepository := repositories.NewAddressRepositoryImpl(db)
 
 	vtrs, err := voters.VotersFromJSONFile(config.VotersConfig.File)
 	if err != nil {
@@ -48,6 +50,7 @@ func NewAppBuilderImpl(db *gorm.DB, config *config.Config, node nodes.Node) *App
 	return &AppBuilderImpl{
 		transactionRepository: transactionRepository,
 		blockRepository:       blockRepository,
+		addressRepository:     addressRepository,
 		voters:                vtrs,
 		node:                  node,
 		config:                config,
@@ -65,6 +68,9 @@ func (appBuilder *AppBuilderImpl) BuildApp() App {
 
 	transactionsTab := tabs.NewTransactionsTab(appBuilder.transactionRepository, appBuilder.voters)
 	t.Append(container.NewTabItem("Transactions", transactionsTab.GetWidget()))
+
+	peersTab := tabs.NewPeersTab(appBuilder.node.GetNetwork(), appBuilder.addressRepository)
+	t.Append(container.NewTabItem("Peers", peersTab.GetWidget()))
 
 	if appBuilder.config.MinerConfig.Enabled {
 		miningTab := tabs.NewMiningTab(appBuilder.node.GetMiner())

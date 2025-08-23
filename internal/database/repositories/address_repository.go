@@ -17,6 +17,7 @@ type AddressRepository interface {
 	UpdateLastSeen(address *networking_models.Address, lastSeen *time.Time) error
 	UpdateLastFailed(address *networking_models.Address, lastFailed *time.Time) error
 	GetAddresses(limit int, excludedAddresses []*networking_models.Address) ([]*networking_models.Address, error)
+	GetAddressesPaged(offset int, pageSize int, excludedAddresses []*networking_models.Address) ([]*db_models.AddressDB, int64, error)
 }
 
 type AddressRepositoryImpl struct {
@@ -122,4 +123,27 @@ func (repo *AddressRepositoryImpl) GetAddresses(limit int, excludedAddresses []*
 	}
 
 	return addresses, nil
+}
+
+func (repo *AddressRepositoryImpl) GetAddressesPaged(offset int, pageSize int, excludedAddresses []*networking_models.Address) ([]*db_models.AddressDB, int64, error) {
+	query := repo.db.Model(&db_models.AddressDB{})
+
+	for _, addr := range excludedAddresses {
+		query = query.Where("NOT (ip = ? AND port = ?)", addr.Ip.String(), addr.Port)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var addressesDB []*db_models.AddressDB
+	if err := query.Order("last_seen DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&addressesDB).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return addressesDB, total, nil
 }
