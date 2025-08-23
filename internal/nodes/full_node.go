@@ -91,6 +91,10 @@ func (fullNode *FullNode) GetMiner() mining.Miner {
 	return fullNode.miner
 }
 
+func (fullNode *FullNode) GetNetwork() network.Network {
+	return fullNode.network
+}
+
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
 	inv, err := models.InvFromBytes(message.Payload)
 

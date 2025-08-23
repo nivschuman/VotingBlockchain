@@ -24,6 +24,9 @@ type Network interface {
 	AddCommandHandler(command [12]byte, handler peer.CommandHandler)
 	GetNetworkTime() int64
 	BroadcastItemToPeers(msgType uint32, id []byte, exceptPeer *peer.Peer)
+	DialAddress(address *models.Address) error
+	GetPeers() []*peer.Peer
+	RemovePeer(p *peer.Peer)
 }
 
 type NetworkImpl struct {
@@ -109,6 +112,61 @@ func (network *NetworkImpl) BroadcastItemToPeers(msgType uint32, id []byte, exce
 		}
 	}
 	network.PeersMutex.RUnlock()
+}
+
+func (network *NetworkImpl) DialAddress(address *models.Address) error {
+	network.PeersMutex.RLock()
+	_, alreadyConnected := network.Peers[address.String()]
+	network.PeersMutex.RUnlock()
+
+	if alreadyConnected {
+		return nil
+	}
+
+	err := network.Dialer.Dial(address.Ip, address.Port)
+	if err != nil {
+		log.Printf("|Network| Failed to manually dial %s: %v", address.String(), err)
+
+		now := time.Now()
+		if err2 := network.addressRepository.UpdateLastFailed(address, &now); err2 != nil {
+			log.Printf("|Network| Failed to update last failed for address %s: %v", address.String(), err2)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func (network *NetworkImpl) GetPeers() []*peer.Peer {
+	network.PeersMutex.RLock()
+	defer network.PeersMutex.RUnlock()
+
+	peers := make([]*peer.Peer, 0, len(network.Peers))
+	for _, p := range network.Peers {
+		peers = append(peers, p)
+	}
+	return peers
+}
+
+func (network *NetworkImpl) RemovePeer(p *peer.Peer) {
+	if p == nil {
+		return
+	}
+
+	network.PeersMutex.Lock()
+	defer network.PeersMutex.Unlock()
+
+	key := p.Conn.RemoteAddr().String()
+	if _, exists := network.Peers[key]; !exists {
+		return
+	}
+
+	log.Printf("|Network| Removing peer %s", p.String())
+	p.Disconnect()
+	delete(network.Peers, key)
+
+	network.setNetworkTimeOffset()
 }
 
 func (network *NetworkImpl) createPeerConfig() peer.PeerConfig {

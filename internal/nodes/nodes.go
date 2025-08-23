@@ -18,6 +18,7 @@ type Node interface {
 	Stop()
 	AddShutdownHook(func() error)
 	GetMiner() mining.Miner
+	GetNetwork() network.Network
 }
 
 type NodeBuilder interface {
