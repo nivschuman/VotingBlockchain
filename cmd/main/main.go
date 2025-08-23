@@ -46,7 +46,7 @@ func main() {
 	//Start node
 	go node.Start()
 	if conf.UiConfig.Enabled {
-		appBuilder := app.NewAppBuilderImpl(nodeBuilder.GetDatabase(), conf, node)
+		appBuilder := app.NewAppBuilderImpl(conf, node)
 		mainApp := appBuilder.BuildApp()
 		mainApp.Start()
 	} else {

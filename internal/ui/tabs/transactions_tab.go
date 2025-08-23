@@ -8,14 +8,14 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	"github.com/nivschuman/VotingBlockchain/internal/models"
+	"github.com/nivschuman/VotingBlockchain/internal/nodes"
 	"github.com/nivschuman/VotingBlockchain/internal/voters"
 )
 
 type TransactionsTab struct {
-	pageSize              int
-	transactionRepository repositories.TransactionRepository
+	pageSize int
+	node     nodes.Node
 
 	widget fyne.CanvasObject
 
@@ -34,11 +34,11 @@ type TransactionsTab struct {
 	selectedVoter *voters.Voter
 }
 
-func NewTransactionsTab(repo repositories.TransactionRepository, voters []*voters.Voter) *TransactionsTab {
+func NewTransactionsTab(node nodes.Node, voters []*voters.Voter) *TransactionsTab {
 	t := &TransactionsTab{
-		transactionRepository: repo,
-		pageSize:              10,
-		voters:                voters,
+		node:     node,
+		pageSize: 10,
+		voters:   voters,
 	}
 	t.widget = t.buildUI()
 	t.refreshTransactions()
@@ -154,11 +154,12 @@ func (t *TransactionsTab) generateTransaction() error {
 	}
 	tx.Signature = sig
 
-	return t.transactionRepository.InsertIfNotExists(tx)
+	t.node.ProcessGeneratedTransaction(tx)
+	return nil
 }
 
 func (t *TransactionsTab) refreshTransactions() {
-	confirmed, _, err := t.transactionRepository.GetConfirmedTransactionsPaged(0, t.pageSize)
+	confirmed, _, err := t.node.GetTransactionRepository().GetConfirmedTransactionsPaged(0, t.pageSize)
 	if err != nil {
 		t.confirmedTxs = []*models.Transaction{}
 	} else {
@@ -166,7 +167,7 @@ func (t *TransactionsTab) refreshTransactions() {
 	}
 	t.confirmedTable.Refresh()
 
-	mempool, _, err := t.transactionRepository.GetMempoolPaged(0, t.pageSize)
+	mempool, _, err := t.node.GetTransactionRepository().GetMempoolPaged(0, t.pageSize)
 	if err != nil {
 		t.mempoolTxs = []*models.Transaction{}
 	} else {

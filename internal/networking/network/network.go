@@ -27,6 +27,7 @@ type Network interface {
 	DialAddress(address *models.Address) error
 	GetPeers() []*peer.Peer
 	RemovePeer(p *peer.Peer)
+	GetAddressRepository() repositories.AddressRepository
 }
 
 type NetworkImpl struct {
@@ -167,6 +168,10 @@ func (network *NetworkImpl) RemovePeer(p *peer.Peer) {
 	delete(network.Peers, key)
 
 	network.setNetworkTimeOffset()
+}
+
+func (network *NetworkImpl) GetAddressRepository() repositories.AddressRepository {
+	return network.addressRepository
 }
 
 func (network *NetworkImpl) createPeerConfig() peer.PeerConfig {

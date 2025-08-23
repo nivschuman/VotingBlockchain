@@ -29,6 +29,8 @@ type FullNode struct {
 
 	shutdownHooks      []func() error
 	shutdownHooksMutex sync.Mutex
+
+	criticalMutex sync.Mutex
 }
 
 func NewFullNode(
@@ -93,6 +95,50 @@ func (fullNode *FullNode) GetMiner() mining.Miner {
 
 func (fullNode *FullNode) GetNetwork() network.Network {
 	return fullNode.network
+}
+
+func (fullNode *FullNode) GetBlockRepository() repos.BlockRepository {
+	return fullNode.blockRepository
+}
+
+func (fullNode *FullNode) GetTransactionRepository() repos.TransactionRepository {
+	return fullNode.transactionRepository
+}
+
+func (fullNode *FullNode) ProcessGeneratedTransaction(transaction *data_models.Transaction) {
+	valid, err := transaction.IsValid(fullNode.governmentPublicKey)
+
+	if err != nil {
+		log.Printf("|Node| Failed to validate generated transaction: %v", err)
+		return
+	}
+
+	if !valid {
+		log.Printf("|Node| Received invalid generated transaction from")
+		return
+	}
+
+	fullNode.criticalMutex.Lock()
+	valid, err = fullNode.transactionRepository.TransactionValidInActiveChain(transaction)
+	fullNode.criticalMutex.Unlock()
+
+	if err != nil {
+		log.Printf("|Node| Failed validating generated transaction: %v", err)
+		return
+	}
+
+	if !valid {
+		log.Printf("|Node| Received invalid generated transaction")
+		return
+	}
+
+	err = fullNode.transactionRepository.InsertIfNotExists(transaction)
+
+	if err != nil {
+		log.Printf("|Node| Failed to insert generated transaction: %v", err)
+	}
+
+	fullNode.network.BroadcastItemToPeers(models.MSG_TX, transaction.Id, nil)
 }
 
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
@@ -173,7 +219,9 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 		return
 	}
 
+	fullNode.criticalMutex.Lock()
 	valid, err = fullNode.transactionRepository.TransactionValidInActiveChain(transaction)
+	fullNode.criticalMutex.Unlock()
 
 	if err != nil {
 		log.Printf("|Node| Failed validating transaction from %s: %v", fromPeer.String(), err)
@@ -322,7 +370,11 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	}
 
 	//Check if already have block
-	if fullNode.orphanBlocks.ContainsKey(block.Header.Id) {
+	fullNode.orphanBlocksMutex.RLock()
+	haveOrphan := fullNode.orphanBlocks.ContainsKey(block.Header.Id)
+	fullNode.orphanBlocksMutex.RUnlock()
+
+	if haveOrphan {
 		return
 	}
 
@@ -364,14 +416,19 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 		fullNode.orphanBlocksMutex.Unlock()
 
 		//Ask for block
+		fullNode.criticalMutex.Lock()
 		blockLocator, err := fullNode.blockRepository.GetActiveChainBlockLocator()
+		fullNode.criticalMutex.Unlock()
 
 		if err != nil {
 			log.Printf("|Node| Failed to check active chain block locator for %s: %v", fromPeer.String(), err)
 			return
 		}
 
+		fullNode.orphanBlocksMutex.RLock()
 		orphanRoot := fullNode.getOrphanRoot(block)
+		fullNode.orphanBlocksMutex.RUnlock()
+
 		getBlocks := models.NewGetBlocks(blockLocator, orphanRoot.Header.Id)
 
 		msg, err := models.NewGetBlocksMessage(getBlocks)
@@ -390,6 +447,9 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	}
 
 	//Validate block
+	fullNode.criticalMutex.Lock()
+	defer fullNode.criticalMutex.Unlock()
+
 	isValid, err = fullNode.validateBlock(block)
 
 	if err != nil {
@@ -414,6 +474,9 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 	fullNode.network.BroadcastItemToPeers(models.MSG_BLOCK, block.Header.Id, fromPeer)
 
 	//Process dependent orphans recursively
+	fullNode.orphanBlocksMutex.Lock()
+	defer fullNode.orphanBlocksMutex.Unlock()
+
 	queue := []*data_models.Block{block}
 
 	for len(queue) > 0 {
@@ -444,10 +507,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 
 			fullNode.network.BroadcastItemToPeers(models.MSG_BLOCK, child.Header.Id, fromPeer)
 
-			fullNode.orphanBlocksMutex.Lock()
 			fullNode.orphanBlocks.Remove(child.Header.Id)
-			fullNode.orphanBlocksMutex.Unlock()
-
 			queue = append(queue, child)
 		}
 	}
@@ -536,10 +596,6 @@ func (fullNode *FullNode) validateBlock(block *data_models.Block) (bool, error) 
 
 func (fullNode *FullNode) getConnectedOrphans(blockId []byte) []*data_models.Block {
 	blocks := make([]*data_models.Block, 0)
-
-	fullNode.orphanBlocksMutex.RLock()
-	defer fullNode.orphanBlocksMutex.RUnlock()
-
 	for _, orphanBlock := range fullNode.orphanBlocks.Values() {
 		if bytes.Equal(orphanBlock.Header.PreviousBlockId, blockId) {
 			blocks = append(blocks, orphanBlock)
@@ -550,9 +606,6 @@ func (fullNode *FullNode) getConnectedOrphans(blockId []byte) []*data_models.Blo
 }
 
 func (fullNode *FullNode) getOrphanRoot(orphanBlock *data_models.Block) *data_models.Block {
-	fullNode.orphanBlocksMutex.RLock()
-	defer fullNode.orphanBlocksMutex.RUnlock()
-
 	for {
 		prevId := orphanBlock.Header.PreviousBlockId
 
@@ -582,6 +635,9 @@ func (fullNode *FullNode) processMinedBlock(block *data_models.Block) {
 	}
 
 	//Validate block
+	fullNode.criticalMutex.Lock()
+	defer fullNode.criticalMutex.Unlock()
+
 	isValid, err = fullNode.validateBlock(block)
 
 	if err != nil {

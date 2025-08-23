@@ -13,15 +13,13 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
-	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	peer "github.com/nivschuman/VotingBlockchain/internal/networking/peer"
 )
 
 type PeersTab struct {
-	network           network.Network
-	addressRepository repositories.AddressRepository
+	network network.Network
 
 	addressOffset   int
 	addressTotal    int64
@@ -41,11 +39,10 @@ type PeersTab struct {
 	refreshBtn    *widget.Button
 }
 
-func NewPeersTab(network network.Network, addressRepo repositories.AddressRepository) *PeersTab {
+func NewPeersTab(network network.Network) *PeersTab {
 	tab := &PeersTab{
-		network:           network,
-		addressRepository: addressRepo,
-		addressPageSize:   10,
+		network:         network,
+		addressPageSize: 10,
 	}
 
 	tab.widget = tab.buildUI()
@@ -62,7 +59,7 @@ func borderCell(obj fyne.CanvasObject, w, h float32) fyne.CanvasObject {
 func fixedLabel(text string, w, h float32) fyne.CanvasObject {
 	lbl := widget.NewLabel(text)
 	lbl.Alignment = fyne.TextAlignLeading
-	lbl.Wrapping = fyne.TextTruncate
+	lbl.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
 	lbl.Resize(fyne.NewSize(w, h))
 	return lbl
 }
@@ -143,7 +140,7 @@ func (tab *PeersTab) buildUI() fyne.CanvasObject {
 			return
 		}
 		addr := &models.Address{Ip: ip, Port: uint16(port), NodeType: uint32(nodeType)}
-		if err := tab.addressRepository.InsertIfNotExists(addr); err != nil {
+		if err := tab.network.GetAddressRepository().InsertIfNotExists(addr); err != nil {
 			fmt.Println("Insert failed:", err)
 		} else {
 			tab.loadAll()
@@ -219,7 +216,7 @@ func (tab *PeersTab) loadPeers() {
 }
 
 func (tab *PeersTab) loadAddresses() {
-	addrs, total, err := tab.addressRepository.GetAddressesPaged(tab.addressOffset, tab.addressPageSize, nil)
+	addrs, total, err := tab.network.GetAddressRepository().GetAddressesPaged(tab.addressOffset, tab.addressPageSize, nil)
 	if err != nil {
 		fmt.Println("Error fetching addresses:", err)
 		tab.allAddresses = []*db_models.AddressDB{}
