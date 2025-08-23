@@ -11,7 +11,6 @@ import (
 	"github.com/nivschuman/VotingBlockchain/internal/nodes"
 	"github.com/nivschuman/VotingBlockchain/internal/ui/tabs"
 	"github.com/nivschuman/VotingBlockchain/internal/voters"
-	"gorm.io/gorm"
 )
 
 type AppBuilder interface {
@@ -21,7 +20,6 @@ type AppBuilder interface {
 type AppBuilderImpl struct {
 	blockRepository       repositories.BlockRepository
 	transactionRepository repositories.TransactionRepository
-	addressRepository     repositories.AddressRepository
 	voters                []*voters.Voter
 	node                  nodes.Node
 	config                *config.Config
@@ -36,11 +34,7 @@ type AppImpl struct {
 	mainWindow fyne.Window
 }
 
-func NewAppBuilderImpl(db *gorm.DB, config *config.Config, node nodes.Node) *AppBuilderImpl {
-	transactionRepository := repositories.NewTransactionRepositoryImpl(db)
-	blockRepository := repositories.NewBlockRepositoryImpl(db, transactionRepository)
-	addressRepository := repositories.NewAddressRepositoryImpl(db)
-
+func NewAppBuilderImpl(config *config.Config, node nodes.Node) *AppBuilderImpl {
 	vtrs, err := voters.VotersFromJSONFile(config.VotersConfig.File)
 	if err != nil {
 		log.Printf("|App Builder| Failed to load voters: %v", err)
@@ -48,9 +42,8 @@ func NewAppBuilderImpl(db *gorm.DB, config *config.Config, node nodes.Node) *App
 	}
 
 	return &AppBuilderImpl{
-		transactionRepository: transactionRepository,
-		blockRepository:       blockRepository,
-		addressRepository:     addressRepository,
+		transactionRepository: node.GetTransactionRepository(),
+		blockRepository:       node.GetBlockRepository(),
 		voters:                vtrs,
 		node:                  node,
 		config:                config,
@@ -66,10 +59,10 @@ func (appBuilder *AppBuilderImpl) BuildApp() App {
 	blocksTab := tabs.NewBlocksTab(appBuilder.blockRepository)
 	t.Append(container.NewTabItem("Blocks", blocksTab.GetWidget()))
 
-	transactionsTab := tabs.NewTransactionsTab(appBuilder.transactionRepository, appBuilder.voters)
+	transactionsTab := tabs.NewTransactionsTab(appBuilder.node, appBuilder.voters)
 	t.Append(container.NewTabItem("Transactions", transactionsTab.GetWidget()))
 
-	peersTab := tabs.NewPeersTab(appBuilder.node.GetNetwork(), appBuilder.addressRepository)
+	peersTab := tabs.NewPeersTab(appBuilder.node.GetNetwork())
 	t.Append(container.NewTabItem("Peers", peersTab.GetWidget()))
 
 	if appBuilder.config.MinerConfig.Enabled {

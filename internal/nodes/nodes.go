@@ -5,9 +5,10 @@ import (
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	database "github.com/nivschuman/VotingBlockchain/internal/database/connection"
-	"github.com/nivschuman/VotingBlockchain/internal/database/repositories"
-	"github.com/nivschuman/VotingBlockchain/internal/mining"
-	"github.com/nivschuman/VotingBlockchain/internal/networking/network"
+	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	mining "github.com/nivschuman/VotingBlockchain/internal/mining"
+	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
+	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	"gorm.io/gorm"
 )
 
@@ -19,11 +20,14 @@ type Node interface {
 	AddShutdownHook(func() error)
 	GetMiner() mining.Miner
 	GetNetwork() network.Network
+	GetBlockRepository() repositories.BlockRepository
+	GetTransactionRepository() repositories.TransactionRepository
+	ProcessGeneratedTransaction(transaction *data_models.Transaction)
 }
 
 type NodeBuilder interface {
 	BuildNode() (Node, error)
-	GetDatabase() *gorm.DB
+	GetAddressRepository() repositories.AddressRepository
 }
 
 type NodeBuilderImpl struct {
@@ -90,8 +94,4 @@ func (nodeBuilder *NodeBuilderImpl) BuildNode() (Node, error) {
 	})
 
 	return node, nil
-}
-
-func (nodeBuilder *NodeBuilderImpl) GetDatabase() *gorm.DB {
-	return nodeBuilder.db
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"sync"
 	"time"
 
 	db_models "github.com/nivschuman/VotingBlockchain/internal/database/models"
@@ -40,9 +41,11 @@ type BlockRepository interface {
 }
 
 type BlockRepositoryImpl struct {
-	ActiveChainTipId      []byte
 	db                    *gorm.DB
 	transactionRepository TransactionRepository
+
+	activeChainTipId      []byte
+	activeChainTipIdMutex sync.Mutex
 }
 
 func NewBlockRepositoryImpl(db *gorm.DB, transactionRepository TransactionRepository) *BlockRepositoryImpl {
@@ -236,19 +239,22 @@ func (repo *BlockRepositoryImpl) GetNextBlocksIds(blockLocator *structures.Block
 }
 
 func (repo *BlockRepositoryImpl) GetActiveChainBlockLocator() (*structures.BlockLocator, error) {
+	repo.activeChainTipIdMutex.Lock()
+	defer repo.activeChainTipIdMutex.Unlock()
+
 	locator := structures.NewBlockLocator()
 
 	var height uint64
 	err := repo.db.Table("blocks").
 		Select("height").
-		Where("block_header_id = ?", repo.ActiveChainTipId).
+		Where("block_header_id = ?", repo.activeChainTipId).
 		Pluck("height", &height).Error
 
 	if err != nil {
 		return nil, err
 	}
 
-	currentId := repo.ActiveChainTipId
+	currentId := repo.activeChainTipId
 	step := uint64(1)
 
 	for {
@@ -435,9 +441,9 @@ func (repo *BlockRepositoryImpl) GetMissingBlockIds(ids *structures.BytesSet) (*
 	return missingIds, nil
 }
 
-func (blockRepository *BlockRepositoryImpl) GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error) {
+func (repo *BlockRepositoryImpl) GetBlockCumulativeWork(blockHeaderId []byte) (*big.Int, error) {
 	var blockDB db_models.BlockDB
-	err := blockRepository.db.Where("block_header_id = ?", blockHeaderId).First(&blockDB).Error
+	err := repo.db.Where("block_header_id = ?", blockHeaderId).First(&blockDB).Error
 
 	if err != nil {
 		return nil, err
@@ -447,6 +453,9 @@ func (blockRepository *BlockRepositoryImpl) GetBlockCumulativeWork(blockHeaderId
 }
 
 func (blockRepository *BlockRepositoryImpl) InsertIfNotExists(block *models.Block) error {
+	blockRepository.activeChainTipIdMutex.Lock()
+	defer blockRepository.activeChainTipIdMutex.Unlock()
+
 	return blockRepository.db.Transaction(func(tx *gorm.DB) error {
 		var count int64
 		err := tx.Table("blocks").Where("block_header_id = ?", block.Header.Id).Count(&count).Error
@@ -476,7 +485,7 @@ func (blockRepository *BlockRepositoryImpl) InsertIfNotExists(block *models.Bloc
 
 			if result.RowsAffected > 0 {
 				blockDB.Height = prevBlockDB.Height + 1
-				blockDB.InActiveChain = bytes.Equal(block.Header.PreviousBlockId, blockRepository.ActiveChainTipId)
+				blockDB.InActiveChain = bytes.Equal(block.Header.PreviousBlockId, blockRepository.activeChainTipId)
 				blockDB.CumulativeWork = blockWork.Add(prevBlockDB.CumulativeWork)
 			} else {
 				return fmt.Errorf("orphan")
@@ -509,12 +518,12 @@ func (blockRepository *BlockRepositoryImpl) InsertIfNotExists(block *models.Bloc
 		}
 
 		if blockDB.InActiveChain {
-			blockRepository.ActiveChainTipId = blockDB.BlockHeaderId
+			blockRepository.activeChainTipId = blockDB.BlockHeaderId
 			return nil
 		}
 
 		var activeTip db_models.BlockDB
-		if err := tx.Where("block_header_id = ?", blockRepository.ActiveChainTipId).First(&activeTip).Error; err != nil {
+		if err := tx.Where("block_header_id = ?", blockRepository.activeChainTipId).First(&activeTip).Error; err != nil {
 			return fmt.Errorf("active chain tip not found: %v", err)
 		}
 
@@ -548,6 +557,9 @@ func (blockRepository *BlockRepositoryImpl) GenesisBlock() *models.Block {
 }
 
 func (blockRepository *BlockRepositoryImpl) SetActiveChainTipId() error {
+	blockRepository.activeChainTipIdMutex.Lock()
+	defer blockRepository.activeChainTipIdMutex.Unlock()
+
 	var tipId []byte
 
 	subQuery := blockRepository.db.
@@ -574,12 +586,15 @@ func (blockRepository *BlockRepositoryImpl) SetActiveChainTipId() error {
 		return fmt.Errorf("no chain tip found")
 	}
 
-	blockRepository.ActiveChainTipId = tipId
+	blockRepository.activeChainTipId = tipId
 	return nil
 }
 
 func (blockRepository *BlockRepositoryImpl) GetActiveChainTipId() []byte {
-	return blockRepository.ActiveChainTipId
+	blockRepository.activeChainTipIdMutex.Lock()
+	defer blockRepository.activeChainTipIdMutex.Unlock()
+
+	return blockRepository.activeChainTipId
 }
 
 func (blockRepository *BlockRepositoryImpl) GetActiveBlocksPaged(searchText string, offset int, pageSize int, sortAsc bool) ([]*db_models.BlockDB, int64, error) {
@@ -614,7 +629,7 @@ func (blockRepository *BlockRepositoryImpl) GetActiveBlocksPaged(searchText stri
 
 func (blockRepository *BlockRepositoryImpl) reorganizeChain(tx *gorm.DB, newTipId []byte) error {
 	var forkPoint []byte
-	oldTipId := blockRepository.ActiveChainTipId
+	oldTipId := blockRepository.activeChainTipId
 
 	curId := newTipId
 
@@ -657,6 +672,6 @@ func (blockRepository *BlockRepositoryImpl) reorganizeChain(tx *gorm.DB, newTipI
 		oldTipId = *oldBlock.BlockHeader.PreviousBlockHeaderId
 	}
 
-	blockRepository.ActiveChainTipId = newTipId
+	blockRepository.activeChainTipId = newTipId
 	return nil
 }
