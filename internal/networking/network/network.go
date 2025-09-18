@@ -110,7 +110,7 @@ func (network *NetworkImpl) BroadcastItemToPeers(msgType uint32, id []byte, exce
 	for _, peer := range network.Peers {
 		if peer != exceptPeer {
 			peer.InventoryToSendMutex.Lock()
-			peer.InventoryToSend.AddItem(models.MSG_TX, id)
+			peer.InventoryToSend.AddItem(msgType, id)
 			peer.InventoryToSendMutex.Unlock()
 		}
 	}
