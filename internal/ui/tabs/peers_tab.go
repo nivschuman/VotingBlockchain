@@ -176,7 +176,7 @@ func (tab *PeersTab) loadPeers() {
 
 	rows := container.NewVBox()
 
-	widths := []float32{100, 90, 90, 90, 100, 90, 100}
+	widths := []float32{110, 90, 90, 90, 100, 90, 100}
 	h := float32(30)
 
 	headerGrid := container.NewGridWithColumns(len(widths),
@@ -206,7 +206,7 @@ func (tab *PeersTab) loadPeers() {
 			borderCell(fixedLabel(fmt.Sprintf("%d", p.PeerDetails.ProtocolVersion), widths[3], h), widths[3], h),
 			borderCell(fixedLabel(fmt.Sprint(p.PeerDetails.TimeOffset), widths[4], h), widths[4], h),
 			borderCell(fixedLabel(fmt.Sprint(p.PingPongDetails.Latency), widths[5], h), widths[5], h),
-			borderCell(btn, widths[6], h),
+			btn,
 		)
 		rows.Add(row)
 	}

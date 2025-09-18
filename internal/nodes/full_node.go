@@ -149,6 +149,8 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
+	log.Printf("|Node| Received inv from %s with %d items", fromPeer.String(), inv.Count)
+
 	getData := models.NewGetData()
 
 	blockHashes := structures.NewBytesSet()
@@ -192,6 +194,8 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 		return
 	}
 
+	log.Printf("|Node| Sending getdata message to %s with %d items", fromPeer.String(), len(getData.Items()))
+
 	select {
 	case <-fromPeer.StopChannel:
 		return
@@ -206,6 +210,8 @@ func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message
 		log.Printf("|Node| Failed to parse transaction from %s: %v", fromPeer.String(), err)
 		return
 	}
+
+	log.Printf("|Node| Received transaction %x from %s", transaction.Id, fromPeer.String())
 
 	valid, err := transaction.IsValid(fullNode.governmentPublicKey)
 
@@ -278,6 +284,8 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 		return
 	}
 
+	log.Printf("|Node| Received getdata from %s with %d items", fromPeer.String(), len(getData.Items()))
+
 	blockHashes := structures.NewBytesSet()
 	txHashes := structures.NewBytesSet()
 
@@ -304,6 +312,8 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 		return
 	}
 
+	log.Printf("|Node| Sending %d transactions to %s", len(transactions), fromPeer.String())
+
 	for _, tx := range transactions {
 		msg := models.NewMessage(models.CommandTx, tx.AsBytes())
 
@@ -313,6 +323,8 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 		case fromPeer.SendChannel <- *msg:
 		}
 	}
+
+	log.Printf("|Node| Sending %d blocks to %s", len(blocks), fromPeer.String())
 
 	for _, block := range blocks {
 		msg := models.NewMessage(models.CommandBlock, block.AsBytes())
@@ -332,6 +344,8 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 		log.Printf("|Node| Failed to parse getblocks from %s: %v", fromPeer.String(), err)
 		return
 	}
+
+	log.Printf("|Node| Received getblocks from %s", fromPeer.String())
 
 	blocksIds, err := fullNode.blockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
 
@@ -368,6 +382,8 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 		log.Printf("|Node| Failed to parse block from %s: %v", fromPeer.String(), err)
 		return
 	}
+
+	log.Printf("|Node| Received block %x from %s", block.Header.Id, fromPeer.String())
 
 	//Check if already have block
 	fullNode.orphanBlocksMutex.RLock()
