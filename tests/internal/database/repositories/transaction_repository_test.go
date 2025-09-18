@@ -190,3 +190,28 @@ func TestGetMissingTransactionIds(t *testing.T) {
 		}
 	}
 }
+
+func TestGetVotingResults(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, _, _, err := inits.CreateTestData(4, 2)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	results, err := inits.TestTransactionRepository.GetVotingResults()
+	if err != nil {
+		t.Fatalf("failed to get voting results: %v", results)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("incorrect amount of results: %d", len(results))
+	}
+
+	if results[0].CandidateId != 1 {
+		t.Fatalf("incorrect candidate id: %d", results[0].CandidateId)
+	}
+
+	if results[0].Votes != 8 {
+		t.Fatalf("incorrect amount of votes: %d", results[0].Votes)
+	}
+}

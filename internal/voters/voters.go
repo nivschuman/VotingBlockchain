@@ -8,6 +8,11 @@ import (
 	ppk "github.com/nivschuman/VotingBlockchain/internal/crypto/ppk"
 )
 
+type VotingResult struct {
+	CandidateId uint32
+	Votes       int
+}
+
 type Voter struct {
 	Name                string
 	KeyPair             ppk.KeyPair
