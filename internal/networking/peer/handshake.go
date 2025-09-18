@@ -141,6 +141,7 @@ func (peer *Peer) receiveVersion() error {
 		return nil
 	}
 
+	peer.HandshakeDetails.Nonce = version.Nonce
 	peer.HandshakeDetails.HandshakeState = SendVersion
 	return nil
 }
