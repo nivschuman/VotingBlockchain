@@ -345,7 +345,7 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 		return
 	}
 
-	log.Printf("|Node| Received getblocks from %s", fromPeer.String())
+	log.Printf("|Node| Received getblocks from %s, stopHash=%x, ids=%d", fromPeer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
 
 	blocksIds, err := fullNode.blockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
 
@@ -366,6 +366,8 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 		log.Printf("|Node| Failed to create get blocks inv message for %s: %v", fromPeer.String(), err)
 		return
 	}
+
+	log.Printf("|Node| Sending getblocks inv response with %d blocks to %s", inv.Count, fromPeer.String())
 
 	select {
 	case <-fromPeer.StopChannel:
@@ -452,6 +454,8 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 			log.Printf("|Node| Failed to make get blocks message for %s: %v", fromPeer.String(), err)
 			return
 		}
+
+		log.Printf("|Node| Sending getblocks to %s, stopHash=%x, ids=%d", fromPeer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
 
 		select {
 		case <-fromPeer.StopChannel:
