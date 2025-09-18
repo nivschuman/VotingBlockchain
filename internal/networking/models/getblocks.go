@@ -19,7 +19,7 @@ func NewGetBlocksMessage(getBlocks *GetBlocks) (*Message, error) {
 		return nil, err
 	}
 
-	return NewMessage(CommandInv, getBlocksBytes), nil
+	return NewMessage(CommandGetBlocks, getBlocksBytes), nil
 }
 
 func NewGetBlocks(blockLocator *structures.BlockLocator, stopHash []byte) *GetBlocks {
