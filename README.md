@@ -22,13 +22,12 @@ go run ./cmd/main/
 VotingBlockchain uses **Go modules** for dependency management. To download and install all required modules, run the following command in the **project root**:
 
 ```bash
-go mod tidy
+go mod download
 ```
 
 This will:
 
 - Download all dependencies specified in `go.mod`
-- Remove any unused dependencies
 - Ensure the project builds correctly with all required packages
 
 > Make sure your Go version matches the project’s requirement (Go 1.23.4 or newer).
@@ -54,6 +53,8 @@ network:
   send-data-interval: 100
   get-addr-interval: 300
   max-number-of-connections: 10
+  addresses-file: "addresses/addresses.json"
+  dial: true
 
 miner:
   enabled: true
@@ -82,6 +83,7 @@ voters:
 * `ui.enabled`: Enables the built-in graphical UI for casting votes and monitoring blocks/transactions.
 * `database.file`: SQLite file path for blockchain state.
 * `voters.file`: Path to a JSON file containing voters (used by the UI to create valid, signed vote transactions).
+* `network.addresses-file`: Path to a json file containing addresses
 
 ---
 
@@ -141,6 +143,29 @@ The UI can take in a JSON file that lists voters and includes a **government sig
 * `government_signature` is a **DER** ECDSA signature, hex‑encoded, produced by the government’s private key over `hash(voter_public_key_bytes)`.
 
 > The node validates each transaction by checking the government’s signature against the configured `government.public-key`.
+
+---
+
+## 🌐 Addresses JSON
+
+The node can take in a JSON file that lists addresses to include in the database and connect to.
+
+### Format
+
+```json
+[
+  {
+    "ip": "127.0.0.1",
+    "port": 8333,
+    "node_type": 1
+  }
+  {
+    "ip": "127.0.0.1",
+    "port": 8334,
+    "node_type": 1
+  }
+]
+```
 
 ---
 

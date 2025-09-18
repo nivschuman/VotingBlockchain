@@ -11,6 +11,7 @@ network:
   get-addr-interval: 300
   max-number-of-connections: 10
   addresses-file: "addresses/addresses.json"
+  dial: true
   
 miner:
   enabled: true

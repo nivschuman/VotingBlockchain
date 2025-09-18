@@ -69,8 +69,10 @@ func NewNetworkImpl(addressRepository repositories.AddressRepository, networkCon
 func (network *NetworkImpl) Start() {
 	log.Print("|Network| Starting")
 	network.Listener.Listen(&network.wg)
-	network.dialPeers()
 	network.removePeers()
+	if network.networkConfig.Dial {
+		network.dialPeers()
+	}
 }
 
 func (network *NetworkImpl) Stop() {
