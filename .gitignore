@@ -29,3 +29,6 @@ databases/*
 
 #voters
 /voters/*
+
+#addresses
+/addresses/*

@@ -10,6 +10,7 @@ network:
   send-data-interval: 100
   get-addr-interval: 300
   max-number-of-connections: 10
+  addresses-file: "addresses/addresses.json"
   
 miner:
   enabled: true
