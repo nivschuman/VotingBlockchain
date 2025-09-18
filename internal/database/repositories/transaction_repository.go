@@ -102,7 +102,7 @@ func (repo *TransactionRepositoryImpl) GetMissingTransactionIds(ids *structures.
 	transactionIds := ids.ToBytesSlice()
 
 	if len(transactionIds) == 0 {
-		return nil, nil
+		return structures.NewBytesSet(), nil
 	}
 
 	var existingTransactions []db_models.TransactionDB
