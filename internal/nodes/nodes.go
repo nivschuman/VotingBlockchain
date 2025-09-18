@@ -2,12 +2,14 @@ package nodes
 
 import (
 	"fmt"
+	"log"
 
 	config "github.com/nivschuman/VotingBlockchain/internal/config"
 	database "github.com/nivschuman/VotingBlockchain/internal/database/connection"
 	repositories "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
 	mining "github.com/nivschuman/VotingBlockchain/internal/mining"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
+	network_models "github.com/nivschuman/VotingBlockchain/internal/networking/models"
 	network "github.com/nivschuman/VotingBlockchain/internal/networking/network"
 	"gorm.io/gorm"
 )
@@ -65,6 +67,16 @@ func NewNodeBuilderImpl(config *config.Config) (*NodeBuilderImpl, error) {
 	miner = mining.NewMinerImpl(netwrk.GetNetworkTime, blockRepository, transactionRepository, minerProps)
 	if !config.MinerConfig.Enabled {
 		miner = mining.NewDisabledMiner()
+	}
+
+	addresses, err := network_models.AddressesFromJSONFile(config.NetworkConfig.AddressesFile)
+	if err != nil {
+		log.Printf("|Node Builder| Failed to load addresses file: %v", err)
+		addresses = make([]*network_models.Address, 0)
+	}
+
+	for _, address := range addresses {
+		addressRepository.InsertIfNotExists(address)
 	}
 
 	return &NodeBuilderImpl{

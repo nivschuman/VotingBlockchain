@@ -3,8 +3,10 @@ package networking_models
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 
 	compact "github.com/nivschuman/VotingBlockchain/internal/networking/utils/compact"
 )
@@ -20,6 +22,12 @@ type Address struct {
 type Addr struct {
 	Count     uint64
 	Addresses []*Address
+}
+
+type addressJSON struct {
+	Ip       string `json:"ip"`
+	Port     uint16 `json:"port"`
+	NodeType uint32 `json:"node_type"`
 }
 
 func NewAddr() *Addr {
@@ -198,4 +206,38 @@ func (a *Address) Equals(other *Address) bool {
 	}
 
 	return a.Ip.Equal(other.Ip) && a.Port == other.Port
+}
+
+func AddressesFromJSON(data []byte) ([]*Address, error) {
+	var addrList []addressJSON
+	if err := json.Unmarshal(data, &addrList); err != nil {
+		return nil, err
+	}
+
+	addresses := make([]*Address, 0, len(addrList))
+	for _, aj := range addrList {
+		ip := net.ParseIP(aj.Ip)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid IP address: %s", aj.Ip)
+		}
+
+		address := &Address{
+			Ip:       ip,
+			Port:     aj.Port,
+			NodeType: aj.NodeType,
+		}
+
+		addresses = append(addresses, address)
+	}
+
+	return addresses, nil
+}
+
+func AddressesFromJSONFile(path string) ([]*Address, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return AddressesFromJSON(data)
 }
