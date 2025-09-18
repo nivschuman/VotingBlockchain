@@ -6,11 +6,11 @@ import (
 )
 
 type Dialer struct {
-	ConnectionHandler ConnectionHandler
+	connectionHandler ConnectionHandler
 }
 
-func NewDialer() *Dialer {
-	return &Dialer{}
+func NewDialer(connectionHandler ConnectionHandler) *Dialer {
+	return &Dialer{connectionHandler: connectionHandler}
 }
 
 func (dialer *Dialer) Dial(ip net.IP, port uint16) error {
@@ -21,7 +21,7 @@ func (dialer *Dialer) Dial(ip net.IP, port uint16) error {
 		return err
 	}
 
-	go dialer.ConnectionHandler(conn, true)
+	go dialer.connectionHandler(conn, true)
 
 	return nil
 }

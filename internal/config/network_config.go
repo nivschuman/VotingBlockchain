@@ -15,6 +15,7 @@ type NetworkConfig struct {
 	GetAddrInterval        uint32 `yaml:"get-addr-interval"`
 	MaxNumberOfConnections int    `yaml:"max-number-of-connections"`
 	AddressesFile          string `yaml:"addresses-file"`
+	Dial                   bool   `yaml:"dial"`
 }
 
 func (n *NetworkConfig) UnmarshalYAML(unmarshal func(any) error) error {
@@ -27,6 +28,7 @@ func (n *NetworkConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		GetAddrInterval        uint32 `yaml:"get-addr-interval"`
 		MaxNumberOfConnections int    `yaml:"max-number-of-connections"`
 		AddressesFile          string `yaml:"addresses-file"`
+		Dial                   bool   `yaml:"dial"`
 	}
 
 	if err := unmarshal(&raw); err != nil {
@@ -45,6 +47,7 @@ func (n *NetworkConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	n.GetAddrInterval = raw.GetAddrInterval
 	n.MaxNumberOfConnections = raw.MaxNumberOfConnections
 	n.AddressesFile = raw.AddressesFile
+	n.Dial = raw.Dial
 
 	return nil
 }
