@@ -417,7 +417,7 @@ func (repo *BlockRepositoryImpl) GetMissingBlockIds(ids *structures.BytesSet) (*
 	blockIds := ids.ToBytesSlice()
 
 	if len(blockIds) == 0 {
-		return nil, nil
+		return structures.NewBytesSet(), nil
 	}
 
 	var existingBlocks []db_models.BlockHeaderDB
