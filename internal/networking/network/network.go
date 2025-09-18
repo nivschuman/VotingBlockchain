@@ -55,7 +55,7 @@ type NetworkImpl struct {
 func NewNetworkImpl(addressRepository repositories.AddressRepository, networkConfig *config.NetworkConfig, myVersion models.VersionProvider) *NetworkImpl {
 	network := &NetworkImpl{}
 	network.Listener = connectors.NewListener(networkConfig.Ip, networkConfig.Port, network.handleConnection)
-	network.Dialer = connectors.NewDialer()
+	network.Dialer = connectors.NewDialer(network.handleConnection)
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
 	network.commandHandlers = structures.NewBytesMap[peer.CommandHandler]()
@@ -286,50 +286,55 @@ func (network *NetworkImpl) dialPeers() {
 	ticker := time.NewTicker(2 * time.Minute)
 	network.wg.Add(1)
 
+	dial := func() {
+		network.PeersMutex.RLock()
+		if len(network.Peers) >= network.networkConfig.MaxNumberOfConnections {
+			network.PeersMutex.RUnlock()
+			return
+		}
+
+		neededAddresses := network.networkConfig.MaxNumberOfConnections - len(network.Peers)
+
+		excludedAddresses := make([]*models.Address, len(network.Peers))
+		idx := 0
+		for _, peer := range network.Peers {
+			excludedAddresses[idx] = peer.Address
+			idx++
+		}
+		network.PeersMutex.RUnlock()
+
+		addresses, err := network.addressRepository.GetAddresses(neededAddresses, excludedAddresses)
+		if err != nil {
+			log.Printf("|Network| Failed to get addresses: %v", err)
+			return
+		}
+
+		for _, address := range addresses {
+			err := network.Dialer.Dial(address.Ip, address.Port)
+			if err != nil {
+				log.Printf("|Network| Failed to dial address %s: %v", address.String(), err)
+
+				now := time.Now()
+				err := network.addressRepository.UpdateLastFailed(address, &now)
+				if err != nil {
+					log.Printf("|Network| Failed to update last failed for address %s: %v", address.String(), err)
+				}
+			}
+		}
+	}
+
 	go func() {
 		defer network.wg.Done()
 		defer ticker.Stop()
 
+		dial()
 		for {
 			select {
 			case <-network.stopChannel:
 				log.Println("|Network| Stopping dial peers")
 				return
 			case <-ticker.C:
-				network.PeersMutex.RLock()
-				if len(network.Peers) >= network.networkConfig.MaxNumberOfConnections {
-					network.PeersMutex.RUnlock()
-					continue
-				}
-
-				neededAddresses := network.networkConfig.MaxNumberOfConnections - len(network.Peers)
-
-				excludedAddresses := make([]*models.Address, len(network.Peers))
-				idx := 0
-				for _, peer := range network.Peers {
-					excludedAddresses[idx] = peer.Address
-					idx++
-				}
-				network.PeersMutex.RUnlock()
-
-				addresses, err := network.addressRepository.GetAddresses(neededAddresses, excludedAddresses)
-				if err != nil {
-					log.Printf("|Network| Failed to get addresses: %v", err)
-					continue
-				}
-
-				for _, address := range addresses {
-					err := network.Dialer.Dial(address.Ip, address.Port)
-					if err != nil {
-						log.Printf("|Network| Failed to dial address %s: %v", address.String(), err)
-
-						now := time.Now()
-						err := network.addressRepository.UpdateLastFailed(address, &now)
-						if err != nil {
-							log.Printf("|Network| Failed to update last failed for address %s: %v", address.String(), err)
-						}
-					}
-				}
+				dial()
 			}
 		}
 	}()
