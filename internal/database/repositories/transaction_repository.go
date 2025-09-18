@@ -5,6 +5,7 @@ import (
 	mapping "github.com/nivschuman/VotingBlockchain/internal/mapping"
 	models "github.com/nivschuman/VotingBlockchain/internal/models"
 	structures "github.com/nivschuman/VotingBlockchain/internal/structures"
+	"github.com/nivschuman/VotingBlockchain/internal/voters"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +20,7 @@ type TransactionRepository interface {
 	InsertIfNotExistsTransactional(transaction *models.Transaction, tx *gorm.DB) error
 	GetConfirmedTransactionsPaged(offset int, limit int) ([]*models.Transaction, int, error)
 	GetMempoolPaged(offset int, limit int) ([]*models.Transaction, int, error)
+	GetVotingResults() ([]*voters.VotingResult, error)
 }
 
 type TransactionRepositoryImpl struct {
@@ -280,4 +282,24 @@ func (repo *TransactionRepositoryImpl) GetMempoolPaged(offset int, limit int) ([
 	}
 
 	return transactions, int(total), nil
+}
+
+func (repo *TransactionRepositoryImpl) GetVotingResults() ([]*voters.VotingResult, error) {
+	var results []*voters.VotingResult
+
+	err := repo.db.
+		Table("transactions t").
+		Select("t.candidate_id as candidate_id, COUNT(*) as votes").
+		Joins("JOIN transactions_blocks tb ON t.id = tb.transaction_id").
+		Joins("JOIN blocks b ON tb.block_header_id = b.block_header_id").
+		Where("b.in_active_chain = ?", true).
+		Group("t.candidate_id").
+		Order("t.candidate_id ASC").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }

@@ -143,7 +143,7 @@ func TestGetMedianTimePast(t *testing.T) {
 	expectedMedianTime := times[len(times)/2]
 
 	lastBlock := blocks[len(blocks)-1]
-	medianTime, err := inits.TestBlockRepository.GetMedianTimePast(lastBlock.Header.Id, 6)
+	medianTime, err := inits.TestBlockRepository.GetMedianTimePast(lastBlock.Header.Id, 4)
 
 	if err != nil {
 		t.Fatalf("failed to calculate median time: %v", err)

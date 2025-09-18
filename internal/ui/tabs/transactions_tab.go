@@ -30,6 +30,14 @@ type TransactionsTab struct {
 	confirmedTxs []*models.Transaction
 	mempoolTxs   []*models.Transaction
 
+	confirmedPage int
+	mempoolPage   int
+
+	confirmedPrevBtn *widget.Button
+	confirmedNextBtn *widget.Button
+	mempoolPrevBtn   *widget.Button
+	mempoolNextBtn   *widget.Button
+
 	voters        []*voters.Voter
 	selectedVoter *voters.Voter
 }
@@ -41,7 +49,8 @@ func NewTransactionsTab(node nodes.Node, voters []*voters.Voter) *TransactionsTa
 		voters:   voters,
 	}
 	t.widget = t.buildUI()
-	t.refreshTransactions()
+	t.refreshConfirmedTransactions()
+	t.refreshMempoolTransactions()
 	return t
 }
 
@@ -73,10 +82,12 @@ func (t *TransactionsTab) buildUI() fyne.CanvasObject {
 		if err := t.generateTransaction(); err != nil {
 			fmt.Println("Failed to generate transaction:", err)
 		}
-		t.refreshTransactions()
+		t.refreshConfirmedTransactions()
+		t.refreshMempoolTransactions()
 	})
 	t.refreshBtn = widget.NewButton("Refresh Transactions", func() {
-		t.refreshTransactions()
+		t.refreshConfirmedTransactions()
+		t.refreshMempoolTransactions()
 	})
 
 	inputSection := container.NewVBox(
@@ -89,7 +100,11 @@ func (t *TransactionsTab) buildUI() fyne.CanvasObject {
 	// Confirmed Transactions Table
 	t.confirmedTable = widget.NewTable(
 		func() (int, int) { return len(t.confirmedTxs) + 1, 4 },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("")
+			lbl.Wrapping = fyne.TextTruncate
+			return lbl
+		},
 		t.updateConfirmedCell,
 	)
 	t.confirmedTable.SetColumnWidth(0, 200)
@@ -97,13 +112,35 @@ func (t *TransactionsTab) buildUI() fyne.CanvasObject {
 	t.confirmedTable.SetColumnWidth(2, 150)
 	t.confirmedTable.SetColumnWidth(3, 100)
 
+	t.confirmedPrevBtn = widget.NewButton("Prev", func() {
+		if t.confirmedPage > 0 {
+			t.confirmedPage--
+			t.refreshConfirmedTransactions()
+		}
+	})
+	t.confirmedNextBtn = widget.NewButton("Next", func() {
+		t.confirmedPage++
+		t.refreshConfirmedTransactions()
+	})
+	confirmedNav := container.NewHBox(t.confirmedPrevBtn, t.confirmedNextBtn)
+
 	confirmedScroll := container.NewVScroll(t.confirmedTable)
-	confirmedScroll.SetMinSize(fyne.NewSize(700, 100))
+	confirmedScroll.SetMinSize(fyne.NewSize(700, 150)) // fixed height
+
+	confirmedSection := container.NewVBox(
+		widget.NewLabelWithStyle("Confirmed Transactions", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		confirmedScroll,
+		confirmedNav,
+	)
 
 	// Mempool Transactions Table
 	t.mempoolTable = widget.NewTable(
 		func() (int, int) { return len(t.mempoolTxs) + 1, 4 },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("")
+			lbl.Wrapping = fyne.TextTruncate
+			return lbl
+		},
 		t.updateMempoolCell,
 	)
 	t.mempoolTable.SetColumnWidth(0, 200)
@@ -111,15 +148,31 @@ func (t *TransactionsTab) buildUI() fyne.CanvasObject {
 	t.mempoolTable.SetColumnWidth(2, 150)
 	t.mempoolTable.SetColumnWidth(3, 100)
 
+	t.mempoolPrevBtn = widget.NewButton("Prev", func() {
+		if t.mempoolPage > 0 {
+			t.mempoolPage--
+			t.refreshMempoolTransactions()
+		}
+	})
+	t.mempoolNextBtn = widget.NewButton("Next", func() {
+		t.mempoolPage++
+		t.refreshMempoolTransactions()
+	})
+	mempoolNav := container.NewHBox(t.mempoolPrevBtn, t.mempoolNextBtn)
+
 	mempoolScroll := container.NewVScroll(t.mempoolTable)
-	mempoolScroll.SetMinSize(fyne.NewSize(700, 100))
+	mempoolScroll.SetMinSize(fyne.NewSize(700, 150)) // fixed height
+
+	mempoolSection := container.NewVBox(
+		widget.NewLabelWithStyle("Mempool", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		mempoolScroll,
+		mempoolNav,
+	)
 
 	content := container.NewVBox(
 		inputSection,
-		widget.NewLabelWithStyle("Confirmed Transactions", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		confirmedScroll,
-		widget.NewLabelWithStyle("Mempool", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		mempoolScroll,
+		confirmedSection,
+		mempoolSection,
 	)
 
 	return container.NewPadded(content)
@@ -129,17 +182,14 @@ func (t *TransactionsTab) generateTransaction() error {
 	if t.selectedVoter == nil {
 		return fmt.Errorf("no voter selected")
 	}
-
 	if t.candidateIDEntry.Text == "" {
 		return fmt.Errorf("no candidate id")
 	}
-
 	candidateIDStr := t.candidateIDEntry.Text
 	candidateID, err := strconv.ParseUint(candidateIDStr, 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid candidate ID: %v", err)
 	}
-
 	tx := &models.Transaction{
 		Version:             1,
 		CandidateId:         uint32(candidateID),
@@ -147,32 +197,64 @@ func (t *TransactionsTab) generateTransaction() error {
 		GovernmentSignature: t.selectedVoter.GovernmentSignature,
 	}
 	tx.SetId()
-
 	sig, err := t.selectedVoter.KeyPair.PrivateKey.CreateSignature(tx.Id)
 	if err != nil {
 		return fmt.Errorf("failed to sign transaction: %v", err)
 	}
 	tx.Signature = sig
-
 	t.node.ProcessGeneratedTransaction(tx)
 	return nil
 }
 
-func (t *TransactionsTab) refreshTransactions() {
-	confirmed, _, err := t.node.GetTransactionRepository().GetConfirmedTransactionsPaged(0, t.pageSize)
+func (t *TransactionsTab) refreshConfirmedTransactions() {
+	offset := t.confirmedPage * t.pageSize
+	confirmed, _, err := t.node.GetTransactionRepository().GetConfirmedTransactionsPaged(offset, t.pageSize)
 	if err != nil {
 		t.confirmedTxs = []*models.Transaction{}
 	} else {
 		t.confirmedTxs = confirmed
 	}
-	t.confirmedTable.Refresh()
 
-	mempool, _, err := t.node.GetTransactionRepository().GetMempoolPaged(0, t.pageSize)
+	// Prev button
+	if t.confirmedPage > 0 {
+		t.confirmedPrevBtn.Enable()
+	} else {
+		t.confirmedPrevBtn.Disable()
+	}
+
+	// Next button
+	if len(t.confirmedTxs) < t.pageSize {
+		t.confirmedNextBtn.Disable()
+	} else {
+		t.confirmedNextBtn.Enable()
+	}
+
+	t.confirmedTable.Refresh()
+}
+
+func (t *TransactionsTab) refreshMempoolTransactions() {
+	offset := t.mempoolPage * t.pageSize
+	mempool, _, err := t.node.GetTransactionRepository().GetMempoolPaged(offset, t.pageSize)
 	if err != nil {
 		t.mempoolTxs = []*models.Transaction{}
 	} else {
 		t.mempoolTxs = mempool
 	}
+
+	// Prev button
+	if t.mempoolPage > 0 {
+		t.mempoolPrevBtn.Enable()
+	} else {
+		t.mempoolPrevBtn.Disable()
+	}
+
+	// Next button
+	if len(t.mempoolTxs) < t.pageSize {
+		t.mempoolNextBtn.Disable()
+	} else {
+		t.mempoolNextBtn.Enable()
+	}
+
 	t.mempoolTable.Refresh()
 }
 
@@ -194,9 +276,9 @@ func (t *TransactionsTab) updateConfirmedCell(id widget.TableCellID, co fyne.Can
 		tx := t.confirmedTxs[id.Row-1]
 		switch id.Col {
 		case 0:
-			lbl.SetText(truncateHex(tx.Id, 16))
+			lbl.SetText(fmt.Sprintf("%x", tx.Id))
 		case 1:
-			lbl.SetText(truncateHex(tx.VoterPublicKey, 16))
+			lbl.SetText(fmt.Sprintf("%x", tx.VoterPublicKey))
 		case 2:
 			lbl.SetText(strconv.Itoa(int(tx.CandidateId)))
 		case 3:
@@ -224,9 +306,9 @@ func (t *TransactionsTab) updateMempoolCell(id widget.TableCellID, co fyne.Canva
 		tx := t.mempoolTxs[id.Row-1]
 		switch id.Col {
 		case 0:
-			lbl.SetText(truncateHex(tx.Id, 16))
+			lbl.SetText(fmt.Sprintf("%x", tx.Id))
 		case 1:
-			lbl.SetText(truncateHex(tx.VoterPublicKey, 16))
+			lbl.SetText(fmt.Sprintf("%x", tx.VoterPublicKey))
 		case 2:
 			lbl.SetText(strconv.Itoa(int(tx.CandidateId)))
 		case 3:
@@ -234,17 +316,6 @@ func (t *TransactionsTab) updateMempoolCell(id widget.TableCellID, co fyne.Canva
 		}
 		lbl.TextStyle = fyne.TextStyle{}
 	}
-}
-
-func truncateHex(data []byte, length int) string {
-	if len(data) == 0 {
-		return ""
-	}
-	hexStr := fmt.Sprintf("%x", data)
-	if len(hexStr) <= length {
-		return hexStr
-	}
-	return hexStr[:length] + "..."
 }
 
 func (t *TransactionsTab) GetWidget() fyne.CanvasObject {

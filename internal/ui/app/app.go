@@ -52,7 +52,7 @@ func NewAppBuilderImpl(config *config.Config, node nodes.Node) *AppBuilderImpl {
 
 func (appBuilder *AppBuilderImpl) BuildApp() App {
 	a := app.New()
-	w := a.NewWindow("Blockchain UI")
+	w := a.NewWindow("Blockchain")
 
 	t := container.NewAppTabs()
 
@@ -70,8 +70,17 @@ func (appBuilder *AppBuilderImpl) BuildApp() App {
 		t.Append(container.NewTabItem("Mining", miningTab.GetWidget()))
 	}
 
+	votesTab := tabs.NewVotesTab(appBuilder.node)
+	t.Append(container.NewTabItem("Votes", votesTab.GetWidget()))
+
 	w.SetContent(t)
 	w.Resize(fyne.NewSize(800, 600))
+
+	icon, err := fyne.LoadResourceFromPath("assets/icon.png")
+	if err == nil {
+		w.SetIcon(icon)
+	}
+
 	return &AppImpl{fyneApp: a, mainWindow: w}
 }
 

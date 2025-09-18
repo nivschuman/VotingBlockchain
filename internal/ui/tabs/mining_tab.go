@@ -92,7 +92,7 @@ func (t *MiningTab) updateUI(stats mining.MiningStatistics) {
 		t.totalBlocksLabel.SetText(fmt.Sprintf("%d", stats.TotalBlocksMined))
 		t.currentHashesLabel.SetText(fmt.Sprintf("%d", stats.CurrentBlockHashesTried))
 		t.lastNonceLabel.SetText(fmt.Sprintf("%d", stats.LastNonce))
-		t.lastBlockTimeLabel.SetText(fmt.Sprintf("%.2fs", stats.LastBlockTime().Seconds()))
+		t.lastBlockTimeLabel.SetText(stats.LastBlockTime().String())
 		t.currentHashRateLabel.SetText(fmt.Sprintf("%.2f Hashes/sec", stats.CurrentHashRate()))
 		t.difficultyLabel.SetText(fmt.Sprintf("%.2f", stats.Difficulty()))
 		t.nbitsLabel.SetText(fmt.Sprintf("0x%08x", stats.CurrentNBits))
@@ -101,7 +101,7 @@ func (t *MiningTab) updateUI(stats mining.MiningStatistics) {
 			startTime := time.Unix(0, stats.CurrentBlockStart)
 			t.currentBlockStartLabel.SetText(startTime.Format("15:04:05"))
 			duration := time.Since(startTime)
-			t.currentDurationLabel.SetText(fmt.Sprintf("%.2fs", duration.Seconds()))
+			t.currentDurationLabel.SetText(duration.String())
 		} else {
 			t.currentBlockStartLabel.SetText("N/A")
 			t.currentDurationLabel.SetText("0s")
