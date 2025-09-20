@@ -23,6 +23,7 @@ type Network interface {
 	Stop()
 	AddCommandHandler(command [12]byte, handler peer.CommandHandler)
 	AddPeerEventHandler(event string, handler peer.PeerEventHandler)
+	RemovePeerEventHandlers(event string)
 	GetNetworkTime() int64
 	BroadcastItemToPeers(msgType uint32, id []byte, exceptPeer *peer.Peer)
 	DialAddress(address *models.Address) error
@@ -109,6 +110,13 @@ func (network *NetworkImpl) AddPeerEventHandler(event string, handler peer.PeerE
 	defer network.peerEventHandlersMutex.Unlock()
 
 	network.peerEventHandlers[event] = append(network.peerEventHandlers[event], handler)
+}
+
+func (network *NetworkImpl) RemovePeerEventHandlers(event string) {
+	network.peerEventHandlersMutex.Lock()
+	defer network.peerEventHandlersMutex.Unlock()
+
+	network.peerEventHandlers[event] = make([]peer.PeerEventHandler, 0)
 }
 
 func (network *NetworkImpl) GetNetworkTime() int64 {
