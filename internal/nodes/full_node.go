@@ -56,6 +56,8 @@ func NewFullNode(
 	fullNode.network.AddCommandHandler(models.CommandInv, fullNode.processInv)
 	fullNode.network.AddCommandHandler(models.CommandBlock, fullNode.processBlock)
 
+	fullNode.network.AddPeerEventHandler("new_peer", fullNode.handleNewPeer)
+
 	fullNode.miner.AddHandler(fullNode.processMinedBlock)
 
 	return fullNode
@@ -141,6 +143,33 @@ func (fullNode *FullNode) ProcessGeneratedTransaction(transaction *data_models.T
 	fullNode.network.BroadcastItemToPeers(models.MSG_TX, transaction.Id, nil)
 }
 
+func (fullNode *FullNode) handleNewPeer(peerEventData peer.PeerEventData) {
+	fullNode.criticalMutex.Lock()
+	blockLocator, err := fullNode.blockRepository.GetActiveChainBlockLocator()
+	fullNode.criticalMutex.Unlock()
+
+	if err != nil {
+		log.Printf("|Node| Failed to get active chain block locator for %s: %v", peerEventData.Peer.String(), err)
+		return
+	}
+
+	stopHash := make([]byte, 32)
+	getBlocks := models.NewGetBlocks(blockLocator, stopHash)
+	msg, err := models.NewGetBlocksMessage(getBlocks)
+	if err != nil {
+		log.Printf("|Node| Failed to make get blocks message for %s: %v", peerEventData.Peer.String(), err)
+		return
+	}
+
+	log.Printf("|Node| Sending getblocks to %s, stopHash=%x, ids=%d", peerEventData.Peer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
+
+	select {
+	case <-peerEventData.Peer.StopChannel:
+		return
+	case peerEventData.Peer.SendChannel <- *msg:
+	}
+}
+
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
 	inv, err := models.InvFromBytes(message.Payload)
 
@@ -185,6 +214,10 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 
 	for _, id := range missingBlocks.ToBytesSlice() {
 		getData.AddItem(models.MSG_BLOCK, id)
+	}
+
+	if len(getData.Items()) == 0 {
+		return
 	}
 
 	getDataMessage, err := models.NewGetDataMessage(getData)
@@ -347,7 +380,9 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 
 	log.Printf("|Node| Received getblocks from %s, stopHash=%x, ids=%d", fromPeer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
 
+	fullNode.criticalMutex.Lock()
 	blocksIds, err := fullNode.blockRepository.GetNextBlocksIds(getBlocks.BlockLocator, getBlocks.StopHash, 500)
+	fullNode.criticalMutex.Unlock()
 
 	if err != nil {
 		log.Printf("|Node| Failed to parse get next blocks for %s: %v", fromPeer.String(), err)
@@ -358,6 +393,11 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 
 	for _, blockId := range blocksIds.ToBytesSlice() {
 		inv.AddItem(models.MSG_BLOCK, blockId)
+	}
+
+	if inv.Count == 0 {
+		log.Printf("|Node| No blocks to send in response to getblocks message from %s", fromPeer.String())
+		return
 	}
 
 	invMessage, err := models.NewInvMessage(inv)

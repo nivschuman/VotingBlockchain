@@ -193,7 +193,7 @@ func (repo *BlockRepositoryImpl) GetNextBlocksIds(blockLocator *structures.Block
 	var currentId []byte
 	for _, id := range ids {
 		var count int64
-		err := repo.db.Table("blocks").Where("block_header_id = ?", id).Count(&count).Error
+		err := repo.db.Table("blocks").Where("block_header_id = ? AND in_active_chain = ?", id, true).Count(&count).Error
 
 		if err != nil {
 			return nil, err

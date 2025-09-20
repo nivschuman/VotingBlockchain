@@ -371,5 +371,8 @@ func newFullNode() *nodes.FullNode {
 	ntwrk := network.NewNetworkImpl(inits.TestAddressRepository, &inits.TestConfig.NetworkConfig, networking_mocks.MockVersionProvider)
 	miner := mining.NewDisabledMiner()
 
-	return nodes.NewFullNode(ntwrk, miner, inits.TestBlockRepository, inits.TestTransactionRepository, inits.TestConfig.GovernmentConfig.PublicKey)
+	fullNode := nodes.NewFullNode(ntwrk, miner, inits.TestBlockRepository, inits.TestTransactionRepository, inits.TestConfig.GovernmentConfig.PublicKey)
+	ntwrk.RemovePeerEventHandlers("new_peer")
+
+	return fullNode
 }
