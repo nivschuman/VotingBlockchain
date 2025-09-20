@@ -21,6 +21,12 @@ const SEND_DATA_INTERVAL = 100 * time.Second
 
 type CommandHandler func(peer *Peer, message *models.Message)
 
+type PeerEventHandler func(eventData PeerEventData)
+type PeerEventData struct {
+	Event string
+	Peer  *Peer
+}
+
 type PeerConfig struct {
 	SendDataInterval time.Duration
 	PingInterval     time.Duration

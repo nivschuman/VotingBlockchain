@@ -22,6 +22,7 @@ type Network interface {
 	Start()
 	Stop()
 	AddCommandHandler(command [12]byte, handler peer.CommandHandler)
+	AddPeerEventHandler(event string, handler peer.PeerEventHandler)
 	GetNetworkTime() int64
 	BroadcastItemToPeers(msgType uint32, id []byte, exceptPeer *peer.Peer)
 	DialAddress(address *models.Address) error
@@ -46,7 +47,10 @@ type NetworkImpl struct {
 	networkTimeOffsetMutex sync.Mutex
 
 	commandHandlersMutex sync.Mutex
-	commandHandlers      *structures.BytesMap[peer.CommandHandler]
+	commandHandlers      *structures.BytesMap[[]peer.CommandHandler]
+
+	peerEventHandlersMutex sync.Mutex
+	peerEventHandlers      map[string][]peer.PeerEventHandler
 
 	stopChannel chan bool
 	wg          sync.WaitGroup
@@ -58,7 +62,8 @@ func NewNetworkImpl(addressRepository repositories.AddressRepository, networkCon
 	network.Dialer = connectors.NewDialer(network.handleConnection)
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
-	network.commandHandlers = structures.NewBytesMap[peer.CommandHandler]()
+	network.commandHandlers = structures.NewBytesMap[[]peer.CommandHandler]()
+	network.peerEventHandlers = make(map[string][]peer.PeerEventHandler)
 	network.addressRepository = addressRepository
 	network.networkConfig = networkConfig
 	network.myVersion = myVersion
@@ -95,7 +100,15 @@ func (network *NetworkImpl) AddCommandHandler(command [12]byte, handler peer.Com
 	network.commandHandlersMutex.Lock()
 	defer network.commandHandlersMutex.Unlock()
 
-	network.commandHandlers.Put(command[:], handler)
+	handlers := network.commandHandlers.GetOrDefault(command[:], make([]peer.CommandHandler, 0))
+	network.commandHandlers.Put(command[:], append(handlers, handler))
+}
+
+func (network *NetworkImpl) AddPeerEventHandler(event string, handler peer.PeerEventHandler) {
+	network.peerEventHandlersMutex.Lock()
+	defer network.peerEventHandlersMutex.Unlock()
+
+	network.peerEventHandlers[event] = append(network.peerEventHandlers[event], handler)
 }
 
 func (network *NetworkImpl) GetNetworkTime() int64 {
@@ -190,10 +203,10 @@ func (network *NetworkImpl) createPeerConfig() peer.PeerConfig {
 
 func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 	network.PeersMutex.Lock()
-	defer network.PeersMutex.Unlock()
 
 	//check if already connected to peer
 	if _, ok := network.Peers[conn.RemoteAddr().String()]; ok {
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -203,6 +216,7 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 	if err != nil {
 		log.Printf("|Network| Failed to set peer %s address: %v", p.String(), err)
 		p.Disconnect()
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -221,6 +235,7 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 			log.Printf("|Network| Failed to update last failed for address %s: %v", p.Address.String(), err)
 		}
 
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -229,6 +244,7 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 	if err != nil {
 		log.Printf("|Network| Failed to insert address %s: %v", p.Address.String(), err)
 		p.Disconnect()
+		network.PeersMutex.Unlock()
 		return
 	}
 
@@ -237,6 +253,7 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 	if err != nil {
 		log.Printf("|Network| Failed to update last seen for address %s: %v", p.Address.String(), err)
 		p.Disconnect()
+		network.PeersMutex.Unlock()
 		return
 	}
 	p.LastSeen = &now
@@ -253,7 +270,10 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 		var c [12]byte
 		copy(c[:], command)
 
-		p.AddCommandHandler(c, network.commandHandlers.GetOrDefault(command, nil))
+		handlers := network.commandHandlers.GetOrDefault(command, make([]peer.CommandHandler, 0))
+		for _, h := range handlers {
+			p.AddCommandHandler(c, h)
+		}
 	}
 	network.commandHandlersMutex.Unlock()
 
@@ -264,6 +284,17 @@ func (network *NetworkImpl) handleConnection(conn net.Conn, initializer bool) {
 
 	//start peer processing
 	p.StartProcessing()
+	network.PeersMutex.Unlock()
+
+	//peer connected event
+	network.peerEventHandlersMutex.Lock()
+	handlers, exists := network.peerEventHandlers["new_peer"]
+	if exists {
+		for _, handler := range handlers {
+			handler(peer.PeerEventData{Peer: p, Event: "new_peer"})
+		}
+	}
+	network.peerEventHandlersMutex.Unlock()
 }
 
 func (network *NetworkImpl) setNetworkTimeOffset() {
@@ -386,6 +417,8 @@ func (network *NetworkImpl) removePeers() {
 }
 
 func (network *NetworkImpl) processPing(fromPeer *peer.Peer, message *models.Message) {
+	log.Printf("|Network| Received ping from %s", fromPeer.String())
+
 	select {
 	case <-fromPeer.StopChannel:
 		return
@@ -394,6 +427,8 @@ func (network *NetworkImpl) processPing(fromPeer *peer.Peer, message *models.Mes
 }
 
 func (network *NetworkImpl) processPong(fromPeer *peer.Peer, message *models.Message) {
+	log.Printf("|Network| Received pong from %s", fromPeer.String())
+
 	n := nonce.NonceFromBytes(message.Payload)
 	if fromPeer.PingPongDetails.Nonce != n {
 		return
@@ -417,6 +452,8 @@ func (network *NetworkImpl) processPong(fromPeer *peer.Peer, message *models.Mes
 }
 
 func (network *NetworkImpl) processGetAddr(fromPeer *peer.Peer, message *models.Message) {
+	log.Printf("|Network| Received getaddr from %s", fromPeer.String())
+
 	excludedAddresses := []*models.Address{fromPeer.Address}
 	addresses, err := network.addressRepository.GetAddresses(models.MAX_ADDR_SIZE, excludedAddresses)
 
@@ -436,6 +473,8 @@ func (network *NetworkImpl) processGetAddr(fromPeer *peer.Peer, message *models.
 		return
 	}
 
+	log.Printf("|Network| Sending addr with %d addresses to %s", addr.Count, fromPeer.String())
+
 	select {
 	case <-fromPeer.StopChannel:
 		return
@@ -452,6 +491,8 @@ func (network *NetworkImpl) processAddr(fromPeer *peer.Peer, message *models.Mes
 		log.Printf("|Network| Failed to parse addr message of peer %s: %v", fromPeer.String(), err)
 		return
 	}
+
+	log.Printf("|Network| Received addr with %d addresses from %s", addr.Count, fromPeer.String())
 
 	if addr.Count > models.MAX_ADDR_SIZE {
 		log.Printf("|Network| Received more than %d addresses from peer %s", models.MAX_ADDR_SIZE, fromPeer.String())
