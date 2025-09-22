@@ -62,8 +62,14 @@ func (appBuilder *AppBuilderImpl) BuildApp() App {
 	transactionsTab := tabs.NewTransactionsTab(appBuilder.node, appBuilder.voters)
 	t.Append(container.NewTabItem("Transactions", transactionsTab.GetWidget()))
 
+	mempoolTab := tabs.NewMempoolTab(appBuilder.node)
+	t.Append(container.NewTabItem("Mempool", mempoolTab.GetWidget()))
+
 	peersTab := tabs.NewPeersTab(appBuilder.node.GetNetwork())
 	t.Append(container.NewTabItem("Peers", peersTab.GetWidget()))
+
+	addressesTab := tabs.NewAddressesTab(appBuilder.node.GetNetwork().GetAddressRepository())
+	t.Append(container.NewTabItem("Addresses", addressesTab.GetWidget()))
 
 	if appBuilder.config.MinerConfig.Enabled {
 		miningTab := tabs.NewMiningTab(appBuilder.node.GetMiner())

@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"log"
 	"net"
 	"slices"
@@ -55,6 +56,9 @@ type NetworkImpl struct {
 
 	stopChannel chan bool
 	wg          sync.WaitGroup
+
+	stopContext   context.Context
+	cancelContext context.CancelFunc
 }
 
 func NewNetworkImpl(addressRepository repositories.AddressRepository, networkConfig *config.NetworkConfig, myVersion models.VersionProvider) *NetworkImpl {
@@ -63,6 +67,7 @@ func NewNetworkImpl(addressRepository repositories.AddressRepository, networkCon
 	network.Dialer = connectors.NewDialer(network.handleConnection)
 	network.Peers = make(PeersMap)
 	network.stopChannel = make(chan bool)
+	network.stopContext, network.cancelContext = context.WithCancel(context.Background())
 	network.commandHandlers = structures.NewBytesMap[[]peer.CommandHandler]()
 	network.peerEventHandlers = make(map[string][]peer.PeerEventHandler)
 	network.addressRepository = addressRepository
@@ -84,6 +89,8 @@ func (network *NetworkImpl) Start() {
 func (network *NetworkImpl) Stop() {
 	log.Print("|Network| Stopping")
 	close(network.stopChannel)
+	network.cancelContext()
+
 	network.Listener.StopListening()
 	network.wg.Wait()
 
@@ -147,7 +154,7 @@ func (network *NetworkImpl) DialAddress(address *models.Address) error {
 		return nil
 	}
 
-	err := network.Dialer.Dial(address.Ip, address.Port)
+	err := network.Dialer.DialContext(address.Ip, address.Port, network.stopContext)
 	if err != nil {
 		log.Printf("|Network| Failed to manually dial %s: %v", address.String(), err)
 
@@ -351,7 +358,7 @@ func (network *NetworkImpl) dialPeers() {
 		}
 
 		for _, address := range addresses {
-			err := network.Dialer.Dial(address.Ip, address.Port)
+			err := network.Dialer.DialContext(address.Ip, address.Port, network.stopContext)
 			if err != nil {
 				log.Printf("|Network| Failed to dial address %s: %v", address.String(), err)
 
@@ -426,12 +433,7 @@ func (network *NetworkImpl) removePeers() {
 
 func (network *NetworkImpl) processPing(fromPeer *peer.Peer, message *models.Message) {
 	log.Printf("|Network| Received ping from %s", fromPeer.String())
-
-	select {
-	case <-fromPeer.StopChannel:
-		return
-	case fromPeer.SendChannel <- *models.NewMessage(models.CommandPong, message.Payload):
-	}
+	fromPeer.SendMessage(models.NewMessage(models.CommandPong, message.Payload))
 }
 
 func (network *NetworkImpl) processPong(fromPeer *peer.Peer, message *models.Message) {
@@ -483,11 +485,7 @@ func (network *NetworkImpl) processGetAddr(fromPeer *peer.Peer, message *models.
 
 	log.Printf("|Network| Sending addr with %d addresses to %s", addr.Count, fromPeer.String())
 
-	select {
-	case <-fromPeer.StopChannel:
-		return
-	case fromPeer.SendChannel <- *addrMessage:
-	}
+	fromPeer.SendMessage(addrMessage)
 }
 
 func (network *NetworkImpl) processAddr(fromPeer *peer.Peer, message *models.Message) {
