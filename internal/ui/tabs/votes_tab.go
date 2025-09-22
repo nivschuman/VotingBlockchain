@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/nivschuman/VotingBlockchain/internal/nodes"
@@ -30,13 +31,19 @@ func NewVotesTab(node nodes.Node) *VotesTab {
 
 func (t *VotesTab) buildUI() fyne.CanvasObject {
 	t.resultsBox = container.NewVBox()
-	t.refreshBtn = widget.NewButton("Refresh Results", func() {
+
+	t.refreshBtn = widget.NewButton("Refresh", func() {
 		t.refreshResults()
 	})
+	header := container.NewHBox(
+		widget.NewLabelWithStyle("Voting Results", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		layout.NewSpacer(),
+		t.refreshBtn,
+	)
+	headerPadded := container.NewPadded(header)
 
 	content := container.NewVBox(
-		widget.NewLabelWithStyle("Voting Results", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewHBox(t.refreshBtn),
+		headerPadded,
 		t.resultsBox,
 	)
 

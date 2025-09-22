@@ -163,11 +163,7 @@ func (fullNode *FullNode) handleNewPeer(peerEventData peer.PeerEventData) {
 
 	log.Printf("|Node| Sending getblocks to %s, stopHash=%x, ids=%d", peerEventData.Peer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
 
-	select {
-	case <-peerEventData.Peer.StopChannel:
-		return
-	case peerEventData.Peer.SendChannel <- *msg:
-	}
+	peerEventData.Peer.SendMessage(msg)
 }
 
 func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Message) {
@@ -229,11 +225,7 @@ func (fullNode *FullNode) processInv(fromPeer *peer.Peer, message *models.Messag
 
 	log.Printf("|Node| Sending getdata message to %s with %d items", fromPeer.String(), len(getData.Items()))
 
-	select {
-	case <-fromPeer.StopChannel:
-		return
-	case fromPeer.SendChannel <- *getDataMessage:
-	}
+	fromPeer.SendMessage(getDataMessage)
 }
 
 func (fullNode *FullNode) processTx(fromPeer *peer.Peer, message *models.Message) {
@@ -302,11 +294,7 @@ func (fullNode *FullNode) processMemPool(fromPeer *peer.Peer, _ *models.Message)
 		return
 	}
 
-	select {
-	case <-fromPeer.StopChannel:
-		return
-	case fromPeer.SendChannel <- *mempoolMessage:
-	}
+	fromPeer.SendMessage(mempoolMessage)
 }
 
 func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Message) {
@@ -349,24 +337,14 @@ func (fullNode *FullNode) processGetData(fromPeer *peer.Peer, message *models.Me
 
 	for _, tx := range transactions {
 		msg := models.NewMessage(models.CommandTx, tx.AsBytes())
-
-		select {
-		case <-fromPeer.StopChannel:
-			return
-		case fromPeer.SendChannel <- *msg:
-		}
+		fromPeer.SendMessage(msg)
 	}
 
 	log.Printf("|Node| Sending %d blocks to %s", len(blocks), fromPeer.String())
 
 	for _, block := range blocks {
 		msg := models.NewMessage(models.CommandBlock, block.AsBytes())
-
-		select {
-		case <-fromPeer.StopChannel:
-			return
-		case fromPeer.SendChannel <- *msg:
-		}
+		fromPeer.SendMessage(msg)
 	}
 }
 
@@ -409,11 +387,7 @@ func (fullNode *FullNode) processGetBlocks(fromPeer *peer.Peer, message *models.
 
 	log.Printf("|Node| Sending getblocks inv response with %d blocks to %s", inv.Count, fromPeer.String())
 
-	select {
-	case <-fromPeer.StopChannel:
-		return
-	case fromPeer.SendChannel <- *invMessage:
-	}
+	fromPeer.SendMessage(invMessage)
 }
 
 func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Message) {
@@ -497,12 +471,7 @@ func (fullNode *FullNode) processBlock(fromPeer *peer.Peer, message *models.Mess
 
 		log.Printf("|Node| Sending getblocks to %s, stopHash=%x, ids=%d", fromPeer.String(), getBlocks.StopHash, getBlocks.BlockLocator.Length())
 
-		select {
-		case <-fromPeer.StopChannel:
-			return
-		case fromPeer.SendChannel <- *msg:
-		}
-
+		fromPeer.SendMessage(msg)
 		return
 	}
 

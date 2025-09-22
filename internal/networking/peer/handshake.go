@@ -89,22 +89,19 @@ func (peer *Peer) sendVersion() error {
 	}
 
 	message := models.NewVersionMessage(myVersion)
-
-	select {
-	case <-peer.StopChannel:
-		return fmt.Errorf("Peer stopped during handshake")
-	case peer.SendChannel <- *message:
-		return nil
+	sent := peer.SendMessage(message)
+	if !sent {
+		return fmt.Errorf("failed to send version")
 	}
+
+	return nil
 }
 
 func (peer *Peer) sendVerAck() error {
 	verAckMessage := models.NewVerAckMessage()
-
-	select {
-	case <-peer.StopChannel:
-		return fmt.Errorf("Peer stopped during handshake")
-	case peer.SendChannel <- *verAckMessage:
+	sent := peer.SendMessage(verAckMessage)
+	if !sent {
+		return fmt.Errorf("failed to send verack")
 	}
 
 	if peer.HandshakeDetails.Initializer {

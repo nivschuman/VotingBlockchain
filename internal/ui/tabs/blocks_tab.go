@@ -42,6 +42,8 @@ type BlocksTab struct {
 	btnLeft  *widget.Button
 	btnRight *widget.Button
 
+	refreshBtn *widget.Button
+
 	searchText string
 }
 
@@ -69,18 +71,23 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 	}
 
 	fixedSearch := container.NewWithoutLayout(t.searchEntry)
-	t.searchEntry.Resize(fyne.NewSize(100, 38))
-	fixedSearch.Resize(fyne.NewSize(100, 38))
+	t.searchEntry.Resize(fyne.NewSize(250, 38))
+	fixedSearch.Resize(fyne.NewSize(300, 38))
 
-	refreshBtn := widget.NewButton("Refresh", func() {
+	t.refreshBtn = widget.NewButton("Refresh", func() {
 		t.loadPage()
 		t.load3Blocks()
 	})
-	refreshBtn.Importance = widget.LowImportance
 
-	// Combine search and refresh horizontally
+	header := container.NewHBox(
+		widget.NewLabelWithStyle("Blocks", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		layout.NewSpacer(),
+		t.refreshBtn,
+	)
+	headerPadded := container.NewPadded(header)
+
 	searchBar := container.NewHBox(
-		refreshBtn,
+		widget.NewLabel("Search:"),
 		fixedSearch,
 		layout.NewSpacer(),
 	)
@@ -107,7 +114,6 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 					})
 					btn.Importance = widget.LowImportance
 					btn.Alignment = widget.ButtonAlignLeading
-
 					cont.Objects = nil
 					cont.Add(btn)
 					cont.Refresh()
@@ -126,7 +132,6 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 							cont.Add(label)
 						}
 					}
-
 					if ti.Col == 1 {
 						label.SetText("Block ID")
 					} else {
@@ -139,7 +144,6 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 				}
 			}
 
-			// Data rows: ensure label present
 			var label *widget.Label
 			if len(cont.Objects) == 0 {
 				label = widget.NewLabel("")
@@ -170,7 +174,6 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 		},
 	)
 
-	// Set column widths for nice spacing
 	t.table.SetColumnWidth(0, 90)
 	t.table.SetColumnWidth(1, 280)
 	t.table.SetColumnWidth(2, 280)
@@ -204,12 +207,6 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 	)
 	paginationControlsPadded := container.NewPadded(container.NewCenter(paginationControls))
 
-	header := container.NewHBox(
-		widget.NewLabelWithStyle("Blocks", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		layout.NewSpacer(),
-	)
-	headerPadded := container.NewPadded(header)
-
 	t.chainView = container.NewHBox()
 	t.chainViewBox = container.NewVBox(t.chainView)
 	chainViewPadded := container.NewPadded(t.chainViewBox)
@@ -231,6 +228,7 @@ func (t *BlocksTab) buildUI() fyne.CanvasObject {
 	content := container.NewVBox(
 		headerPadded,
 		searchBar,
+		layout.NewSpacer(),
 		centeredChainView,
 		centeredTable,
 		paginationControlsPadded,
@@ -317,7 +315,7 @@ func (t *BlocksTab) updateChainButtons(totalCount int64) {
 }
 
 func (t *BlocksTab) makeBlockBox(block *models.BlockDB) fyne.CanvasObject {
-	idShort := shortenBytes(block.BlockHeaderId, 10)
+	idShort := t.shortenBytes(block.BlockHeaderId, 10)
 	height := block.Height
 
 	textColor := color.NRGBA{R: 15, G: 32, B: 64, A: 255}
@@ -343,7 +341,7 @@ func (t *BlocksTab) makeBlockBox(block *models.BlockDB) fyne.CanvasObject {
 	return containerWithBorder
 }
 
-func shortenBytes(data []byte, length int) string {
+func (t *BlocksTab) shortenBytes(data []byte, length int) string {
 	const hexDigits = "0123456789abcdef"
 	if len(data) == 0 {
 		return ""

@@ -40,9 +40,6 @@ type Peer struct {
 	PingPongDetails  *PingPongDetails
 	PeerDetails      *PeerDetails
 
-	SendChannel chan<- models.Message
-	StopChannel <-chan bool
-
 	Remove       bool
 	Disconnected bool
 
@@ -101,8 +98,6 @@ func NewPeer(conn net.Conn, initializer bool, peerConfig PeerConfig, myVersion m
 		PingPongDetails:  pingPongDetails,
 		Disconnected:     false,
 		Remove:           false,
-		SendChannel:      sendChannel,
-		StopChannel:      stopChannel,
 		InventoryToSend:  models.NewInv(),
 		SentGetAddr:      false,
 		myVersion:        myVersion,
@@ -173,11 +168,20 @@ func (peer *Peer) Disconnect() {
 	peer.wg.Wait()
 }
 
+func (peer *Peer) SendMessage(message *models.Message) bool {
+	select {
+	case <-peer.stopChannel:
+		return false
+	case peer.sendChannel <- *message:
+		return true
+	}
+}
+
 func (peer *Peer) readMessages() {
 	defer peer.wg.Done()
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			close(peer.readChannel)
 			return
 		default:
@@ -210,7 +214,7 @@ func (peer *Peer) sendMessages() {
 	defer peer.wg.Done()
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			return
 		case message := <-peer.sendChannel:
 			err := peer.sender.SendMessage(peer.Conn, &message)
@@ -241,7 +245,7 @@ func (peer *Peer) sendData() {
 
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			return
 		case <-tickerPing.C:
 			peer.maybeSendPing()
@@ -257,7 +261,7 @@ func (peer *Peer) processMessages() {
 	defer peer.wg.Done()
 	for {
 		select {
-		case <-peer.StopChannel:
+		case <-peer.stopChannel:
 			return
 		case message, ok := <-peer.readChannel:
 			if !ok {
@@ -288,11 +292,7 @@ func (peer *Peer) maybeSendPing() {
 	peer.PingPongDetails.PingTime = time.Now()
 	peer.PingPongDetails.Nonce = n
 
-	select {
-	case <-peer.StopChannel:
-		return
-	case peer.SendChannel <- *models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)):
-	}
+	peer.SendMessage(models.NewMessage(models.CommandPing, nonce.NonceToBytes(n)))
 }
 
 func (peer *Peer) maybeSendGetAddr() {
@@ -303,10 +303,8 @@ func (peer *Peer) maybeSendGetAddr() {
 		return
 	}
 
-	select {
-	case <-peer.StopChannel:
-		return
-	case peer.SendChannel <- *models.NewGetAddrMessage():
+	sent := peer.SendMessage(models.NewGetAddrMessage())
+	if sent {
 		peer.SentGetAddr = true
 	}
 }
@@ -325,10 +323,8 @@ func (peer *Peer) sendInventory() {
 		return
 	}
 
-	select {
-	case <-peer.StopChannel:
-		return
-	case peer.SendChannel <- *invMessage:
+	sent := peer.SendMessage(invMessage)
+	if sent {
 		peer.InventoryToSend.Clear()
 	}
 }
