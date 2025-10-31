@@ -101,16 +101,17 @@ func (repo *BlockRepositoryImpl) GetNextWorkRequired(lastBlockId []byte) (uint32
 	currentId := slices.Clone(lastBlockDB.BlockHeaderId)
 
 	for range difficulty.INTERVAL {
-		err = repo.db.Where("id = ?", currentId).First(&firstBlockDB).Error
+		err = repo.db.Raw("SELECT * FROM block_headers WHERE id = ?", currentId).First(&firstBlockDB).Error
+
 		if err != nil {
 			return difficulty.MINIMUM_DIFFICULTY, err
 		}
 
-		currentId = slices.Clone(firstBlockDB.Id)
-
-		if currentId == nil {
+		if firstBlockDB.PreviousBlockHeaderId == nil {
 			break
 		}
+
+		currentId = slices.Clone(*firstBlockDB.PreviousBlockHeaderId)
 	}
 
 	actualTimespan := lastBlockDB.BlockHeader.Timestamp - firstBlockDB.Timestamp
@@ -347,7 +348,7 @@ func (repo *BlockRepositoryImpl) GetBlock(blockId []byte) (*models.Block, error)
 	var blockDB db_models.BlockDB
 	err := repo.db.Preload("BlockHeader").
 		Where("block_header_id = ?", blockId).
-		Find(&blockDB).Error
+		First(&blockDB).Error
 
 	if err != nil {
 		return nil, err
