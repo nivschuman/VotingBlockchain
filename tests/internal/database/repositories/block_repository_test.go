@@ -283,3 +283,103 @@ func TestGetNextWorkRequired(t *testing.T) {
 		t.Logf("Difficulty adjusted at interval: new nBits %08x", nBits)
 	}
 }
+
+func TestBlockIsOrphan(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(2, 1)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	block := blocks[1]
+	isOrphan, err := inits.TestBlockRepository.BlockIsOrphan(block)
+	if err != nil {
+		t.Fatalf("BlockIsOrphan returned error: %v", err)
+	}
+
+	if isOrphan {
+		t.Fatalf("Block should not be an orphan")
+	}
+
+	orphan := &models.Block{
+		Header: models.BlockHeader{
+			PreviousBlockId: make([]byte, 32),
+		},
+	}
+
+	isOrphan, err = inits.TestBlockRepository.BlockIsOrphan(orphan)
+	if err != nil {
+		t.Fatalf("BlockIsOrphan returned error: %v", err)
+	}
+
+	if !isOrphan {
+		t.Fatalf("Block should be detected as an orphan")
+	}
+}
+
+func TestHaveBlock(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(2, 1)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	exists, err := inits.TestBlockRepository.HaveBlock(blocks[0].Header.Id)
+	if err != nil {
+		t.Fatalf("HaveBlock returned error: %v", err)
+	}
+	if !exists {
+		t.Fatalf("HaveBlock should return true for existing block")
+	}
+
+	exists, err = inits.TestBlockRepository.HaveBlock(make([]byte, 32))
+	if err != nil {
+		t.Fatalf("HaveBlock returned error: %v", err)
+	}
+	if exists {
+		t.Fatalf("HaveBlock should return false for nonexistent block")
+	}
+}
+
+func TestGetBlock(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(2, 1)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	block, err := inits.TestBlockRepository.GetBlock(blocks[0].Header.Id)
+	if err != nil {
+		t.Fatalf("GetBlock returned error: %v", err)
+	}
+	if block.Header.Id == nil || len(block.Transactions) != 1 {
+		t.Fatalf("GetBlock returned invalid data")
+	}
+
+	_, err = inits.TestBlockRepository.GetBlock(make([]byte, 32))
+	if err == nil {
+		t.Fatalf("GetBlock should return error for nonexistent block")
+	}
+}
+
+func TestGetBlocks(t *testing.T) {
+	inits.ResetTestDatabase()
+	_, blocks, _, err := inits.CreateTestData(3, 1)
+	if err != nil {
+		t.Fatalf("failed to setup test data: %v", err)
+	}
+
+	ids := structures.NewBytesSet()
+	for _, b := range blocks[:2] {
+		ids.Add(b.Header.Id)
+	}
+
+	fetched, err := inits.TestBlockRepository.GetBlocks(ids)
+	if err != nil {
+		t.Fatalf("GetBlocks returned error: %v", err)
+	}
+
+	if len(fetched) != 2 {
+		t.Fatalf("GetBlocks returned wrong number of blocks, got %d", len(fetched))
+	}
+}
