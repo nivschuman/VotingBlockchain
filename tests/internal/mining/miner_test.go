@@ -127,3 +127,40 @@ func TestMineBlockTemplate(t *testing.T) {
 	miner.AddHandler(checkBlock)
 	miner.MineBlockTemplate(template)
 }
+
+func BenchmarkMineBlockTemplate(b *testing.B) {
+	inits.ResetTestDatabase()
+
+	govKeyPair, blocks, _, err := inits.CreateTestData(2, 2)
+	if err != nil {
+		b.Fatalf("failed to setup test data: %v", err)
+	}
+
+	tx1, _, err := inits.CreateTestTransaction(govKeyPair)
+	if err != nil {
+		b.Fatalf("failed to create test tx1: %v", err)
+	}
+
+	lastBlock := blocks[len(blocks)-1]
+
+	getNetworkTime := func() int64 { return time.Now().Unix() }
+	minerProps := mining.MinerProperties{
+		NodeVersion:    inits.TestConfig.NodeConfig.Version,
+		MinerPublicKey: inits.TestConfig.GovernmentConfig.PublicKey,
+	}
+	miner := mining.NewMinerImpl(getNetworkTime, inits.TestBlockRepository, inits.TestTransactionRepository, minerProps)
+
+	template, err := inits.CreateTestBlock(lastBlock.Header.Id, []*data_models.Transaction{tx1})
+	if err != nil {
+		b.Fatalf("failed to create test block: %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		template.Header.Version = int32(i)
+		template.Header.Nonce = 0
+		template.Header.NBits = 0x1e7fffff
+		miner.MineBlockTemplate(template)
+	}
+}

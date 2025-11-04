@@ -38,6 +38,10 @@ func (blockHeader *BlockHeader) IsHashBelowTarget() bool {
 	return difficulty.IsHashBelowTarget(blockHeader.GetHash(), target)
 }
 
+func (blockHeader *BlockHeader) GetTarget() *big.Int {
+	return difficulty.GetTargetFromNBits(blockHeader.NBits)
+}
+
 func (blockHeader *BlockHeader) AsBytes() []byte {
 	buf := new(bytes.Buffer)
 
@@ -56,6 +60,11 @@ func (blockHeader *BlockHeader) AsBytes() []byte {
 	buf.Write(blockHeader.MinerPublicKey)
 
 	return buf.Bytes()
+}
+
+func UpdateBlockHeaderBytes(blockHeaderBytes []byte, timestamp int64, nonce uint64) {
+	binary.BigEndian.PutUint64(blockHeaderBytes[4:12], uint64(timestamp))
+	binary.BigEndian.PutUint64(blockHeaderBytes[16:24], nonce)
 }
 
 func BlockHeaderFromBytes(b []byte) (*BlockHeader, error) {

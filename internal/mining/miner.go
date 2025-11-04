@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	hash "github.com/nivschuman/VotingBlockchain/internal/crypto/hash"
 	repos "github.com/nivschuman/VotingBlockchain/internal/database/repositories"
+	"github.com/nivschuman/VotingBlockchain/internal/difficulty"
 	data_models "github.com/nivschuman/VotingBlockchain/internal/models"
 )
 
@@ -101,7 +103,12 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 	blockTemplate.Header.Nonce = 0
 	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 
-	for !blockTemplate.Header.IsHashBelowTarget() {
+	target := blockTemplate.Header.GetTarget()
+	targetBytes := target.FillBytes(make([]byte, 32))
+	blockHeaderBytes := blockTemplate.Header.AsBytes()
+	blockHeaderHash := hash.HashBytesInto(blockHeaderBytes, make([]byte, 32))
+
+	for !difficulty.IsHashBelowTargetBytes(blockHeaderHash, targetBytes) {
 		select {
 		case <-miner.stopChannel:
 			return
@@ -110,12 +117,14 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 			atomic.AddInt64(&miner.statistics.CurrentBlockHashesTried, 1)
 
 			if blockTemplate.Header.Nonce&0x3ffff == 0 {
+				if !bytes.Equal(blockTemplate.Header.PreviousBlockId, miner.blockRepository.GetActiveChainTipId()) {
+					return
+				}
 				blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 			}
 
-			if !bytes.Equal(blockTemplate.Header.PreviousBlockId, miner.blockRepository.GetActiveChainTipId()) {
-				return
-			}
+			data_models.UpdateBlockHeaderBytes(blockHeaderBytes, blockTemplate.Header.Timestamp, blockTemplate.Header.Nonce)
+			hash.HashBytesInto(blockHeaderBytes, blockHeaderHash)
 		}
 	}
 
