@@ -104,10 +104,11 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 	blockTemplate.Header.Timestamp = max(medianPastTime+1, miner.getNetworkTime())
 
 	target := blockTemplate.Header.GetTarget()
+	targetBytes := target.FillBytes(make([]byte, 32))
 	blockHeaderBytes := blockTemplate.Header.AsBytes()
-	blockHeaderHash := hash.HashBytes(blockHeaderBytes)
+	blockHeaderHash := hash.HashBytesInto(blockHeaderBytes, make([]byte, 32))
 
-	for !difficulty.IsHashBelowTarget(blockHeaderHash, target) {
+	for !difficulty.IsHashBelowTargetBytes(blockHeaderHash, targetBytes) {
 		select {
 		case <-miner.stopChannel:
 			return
@@ -123,7 +124,7 @@ func (miner *MinerImpl) MineBlockTemplate(blockTemplate *data_models.Block) {
 			}
 
 			data_models.UpdateBlockHeaderBytes(blockHeaderBytes, blockTemplate.Header.Timestamp, blockTemplate.Header.Nonce)
-			blockHeaderHash = hash.HashBytes(blockHeaderBytes)
+			hash.HashBytesInto(blockHeaderBytes, blockHeaderHash)
 		}
 	}
 

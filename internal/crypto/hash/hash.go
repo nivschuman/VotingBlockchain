@@ -17,3 +17,9 @@ func HashBytes(data []byte) []byte {
 	bytes := sha256.Sum256(data)
 	return bytes[:]
 }
+
+func HashBytesInto(data []byte, buf []byte) []byte {
+	bytes := sha256.Sum256(data)
+	copy(buf, bytes[:])
+	return buf
+}

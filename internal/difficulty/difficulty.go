@@ -69,6 +69,17 @@ func IsHashBelowTarget(hash []byte, target *big.Int) bool {
 	return blockBigInt.Cmp(target) <= 0
 }
 
+func IsHashBelowTargetBytes(hash []byte, targetBytes []byte) bool {
+	for i := range hash {
+		if hash[i] < targetBytes[i] {
+			return true
+		} else if hash[i] > targetBytes[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func CalculateWork(nBits uint32) *big.Int {
 	target := GetTargetFromNBits(nBits)
 
