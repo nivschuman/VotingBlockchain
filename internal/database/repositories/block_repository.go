@@ -100,7 +100,7 @@ func (repo *BlockRepositoryImpl) GetNextWorkRequired(lastBlockId []byte) (uint32
 	var firstBlockDB db_models.BlockHeaderDB
 	currentId := slices.Clone(lastBlockDB.BlockHeaderId)
 
-	for range difficulty.INTERVAL {
+	for range difficulty.INTERVAL - 1 {
 		err = repo.db.Raw("SELECT * FROM block_headers WHERE id = ?", currentId).First(&firstBlockDB).Error
 
 		if err != nil {
