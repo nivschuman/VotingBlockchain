@@ -1,6 +1,7 @@
 package tabs
 
 import (
+	"encoding/hex"
 	"fmt"
 	"image/color"
 	"strconv"
@@ -342,18 +343,10 @@ func (t *BlocksTab) makeBlockBox(block *models.BlockDB) fyne.CanvasObject {
 }
 
 func (t *BlocksTab) shortenBytes(data []byte, length int) string {
-	const hexDigits = "0123456789abcdef"
 	if len(data) == 0 {
 		return ""
 	}
-
-	hex := make([]byte, len(data)*2)
-	for i, b := range data {
-		hex[i*2] = hexDigits[b>>4]
-		hex[i*2+1] = hexDigits[b&0x0f]
-	}
-
-	str := string(hex)
+	str := hex.EncodeToString(data)
 	if len(str) <= length {
 		return str
 	}

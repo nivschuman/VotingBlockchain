@@ -99,7 +99,7 @@ func (t *TransactionsTab) buildUI() fyne.CanvasObject {
 		func() (int, int) { return len(t.confirmedTxs) + 1, 4 },
 		func() fyne.CanvasObject {
 			lbl := widget.NewLabel("")
-			lbl.Wrapping = fyne.TextWrap(fyne.TextTruncateEllipsis)
+			lbl.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
 			return lbl
 		},
 		t.updateConfirmedCell,
