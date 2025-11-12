@@ -49,13 +49,17 @@ func (m *MempoolTab) buildUI() fyne.CanvasObject {
 
 	m.mempoolTable = widget.NewTable(
 		func() (int, int) { return len(m.mempoolTxs) + 1, 4 },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("")
+			lbl.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
+			return lbl
+		},
 		m.updateMempoolCell,
 	)
-	m.mempoolTable.SetColumnWidth(0, 200)
-	m.mempoolTable.SetColumnWidth(1, 200)
-	m.mempoolTable.SetColumnWidth(2, 150)
-	m.mempoolTable.SetColumnWidth(3, 100)
+	m.mempoolTable.SetColumnWidth(0, 250)
+	m.mempoolTable.SetColumnWidth(1, 250)
+	m.mempoolTable.SetColumnWidth(2, 130)
+	m.mempoolTable.SetColumnWidth(3, 70)
 
 	m.prevBtn = widget.NewButton("Prev", func() {
 		if m.mempoolPage > 0 {
