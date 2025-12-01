@@ -269,6 +269,7 @@ func (repo *TransactionRepositoryImpl) GetMempoolPaged(offset int, limit int) ([
 		Joins("LEFT JOIN transactions_blocks tb ON t.id = tb.transaction_id").
 		Joins("LEFT JOIN blocks b ON tb.block_header_id = b.block_header_id").
 		Where("b.in_active_chain = ? OR b.in_active_chain IS NULL", false).
+		Group("transactions.voter_public_key"). //unique voter public keys - https://www.sqlite.org/lang_select.html#bare_columns_in_an_aggregate_query
 		Order("t.id ASC").
 		Offset(offset).
 		Limit(limit).
