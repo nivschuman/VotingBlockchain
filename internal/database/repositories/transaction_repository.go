@@ -253,12 +253,22 @@ func (repo *TransactionRepositoryImpl) GetConfirmedTransactionsPaged(offset int,
 func (repo *TransactionRepositoryImpl) GetMempoolPaged(offset int, limit int) ([]*models.Transaction, int, error) {
 	var total int64
 
+	subquery := repo.db.
+		Table("transactions AS t2").
+		Select("1").
+		Joins("JOIN transactions_blocks tb2 ON t2.id = tb2.transaction_id").
+		Joins("JOIN blocks b2 ON tb2.block_header_id = b2.block_header_id").
+		Where("b2.in_active_chain = ?", true).
+		Where("t2.voter_public_key = t.voter_public_key")
+
 	err := repo.db.
 		Table("transactions t").
 		Joins("LEFT JOIN transactions_blocks tb ON t.id = tb.transaction_id").
 		Joins("LEFT JOIN blocks b ON tb.block_header_id = b.block_header_id").
 		Where("b.in_active_chain = ? OR b.in_active_chain IS NULL", false).
+		Where("NOT EXISTS (?)", subquery).
 		Count(&total).Error
+
 	if err != nil {
 		return nil, 0, err
 	}
@@ -269,11 +279,13 @@ func (repo *TransactionRepositoryImpl) GetMempoolPaged(offset int, limit int) ([
 		Joins("LEFT JOIN transactions_blocks tb ON t.id = tb.transaction_id").
 		Joins("LEFT JOIN blocks b ON tb.block_header_id = b.block_header_id").
 		Where("b.in_active_chain = ? OR b.in_active_chain IS NULL", false).
-		Group("t.voter_public_key"). //unique voter public keys - https://www.sqlite.org/lang_select.html#bare_columns_in_an_aggregate_query
+		Where("NOT EXISTS (?)", subquery).
+		Group("t.voter_public_key"). // unique voter public keys
 		Order("t.id ASC").
 		Offset(offset).
 		Limit(limit).
 		Find(&txsDB).Error
+
 	if err != nil {
 		return nil, 0, err
 	}
