@@ -563,6 +563,8 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 	}
 
 	//Block transactions must be valid
+	txIds := structures.NewBytesSet()
+	voterKeys := structures.NewBytesSet()
 	for i, tx := range block.Transactions {
 		valid, err := tx.IsValid(fullNode.governmentPublicKey)
 
@@ -574,6 +576,19 @@ func (fullNode *FullNode) checkBlock(block *data_models.Block) (bool, error) {
 			log.Printf("|Node| Block %x: transaction %d is invalid", block.Header.Id, i)
 			return false, nil
 		}
+
+		if txIds.Contains(tx.Id) {
+			log.Printf("|Node| Block %x: duplicate transaction id at index %d", block.Header.Id, i)
+			return false, nil
+		}
+
+		if voterKeys.Contains(tx.VoterPublicKey) {
+			log.Printf("|Node| Block %x: duplicate voter in same block at index %d", block.Header.Id, i)
+			return false, nil
+		}
+
+		txIds.Add(tx.Id)
+		voterKeys.Add(tx.VoterPublicKey)
 	}
 
 	//Check merkle root
