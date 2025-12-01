@@ -26,6 +26,10 @@ func TestGetMempool(t *testing.T) {
 		t.Fatalf("failed to create test tx2: %v", err)
 	}
 
+	tx3 := *tx2
+	tx3.CandidateId = 2
+	tx3.SetId()
+
 	err = inits.TestTransactionRepository.InsertIfNotExists(tx1)
 	if err != nil {
 		t.Fatalf("failed to create insert tx1: %v", err)
@@ -36,9 +40,14 @@ func TestGetMempool(t *testing.T) {
 		t.Fatalf("failed to create insert tx2: %v", err)
 	}
 
+	err = inits.TestTransactionRepository.InsertIfNotExists(&tx3)
+	if err != nil {
+		t.Fatalf("failed to create insert tx3: %v", err)
+	}
+
 	addedByteSet := structures.NewBytesSet()
-	addedByteSet.Add(tx1.Id)
-	addedByteSet.Add(tx2.Id)
+	addedByteSet.Add(tx1.VoterPublicKey)
+	addedByteSet.Add(tx2.VoterPublicKey)
 
 	txs, err := inits.TestTransactionRepository.GetMempool(10)
 
@@ -51,7 +60,7 @@ func TestGetMempool(t *testing.T) {
 	}
 
 	for _, tx := range txs {
-		if !addedByteSet.Contains(tx.Id) {
+		if !addedByteSet.Contains(tx.VoterPublicKey) {
 			t.Fatalf("received invalid transaction: %x", tx.Id)
 		}
 	}
